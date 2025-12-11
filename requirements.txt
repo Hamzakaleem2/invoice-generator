@@ -4,3 +4,7 @@ jinja2
 weasyprint
 num2words
 mistralai
+numpy
+opencv-python-headless
+pytesseract
+pillow
