@@ -5,30 +5,16 @@ import json
 import os
 import base64
 import zipfile
-import re
-import cv2
-import numpy as np
-import shutil
 from datetime import datetime
 from jinja2 import Template
 from weasyprint import HTML, CSS
 from num2words import num2words
-import pytesseract
-
-# --- 0. CLOUD & OCR CONFIGURATION ---
-# This block automatically detects if we are on the Cloud or Local Windows
-if os.name == 'nt':  # Windows
-    # Update this path if your local installation is different
-    possible_path = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-    if os.path.exists(possible_path):
-        pytesseract.pytesseract.tesseract_cmd = possible_path
-else:  # Linux (Streamlit Cloud)
-    # On Cloud, Tesseract is installed in the system path, so we don't need to specify it
-    pass
+from mistralai import Mistral  # NEW LIBRARY
 
 # --- 1. CONFIGURATION & DATABASE ---
 SERIAL_FILE = 'serial_tracker.json'
 
+# --- YOUR COMPANY DATABASE (UNCHANGED) ---
 COMPANIES = {
     "M/S National Traders": {
         "template_type": "logo",
@@ -95,46 +81,66 @@ DEPARTMENTS = [
     "Animal Husbandry"
 ]
 
-# --- 2. OCR ENGINE ---
-def perform_ocr_extraction(image_file):
-    try:
-        file_bytes = np.asarray(bytearray(image_file.read()), dtype=np.uint8)
-        img = cv2.imdecode(file_bytes, 1)
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        gray = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
-        text = pytesseract.image_to_string(gray)
-        
-        extracted_data = {"po_no": "", "date": "", "dept": "", "items": []}
-        
-        # Regex Extraction Logic
-        order_match = re.search(r'(?:No\.|NO\.|Order No)\s?[:\.]?\s?([A-Za-z0-9\/\-\(\)\s]+)', text)
-        if order_match:
-            raw_no = order_match.group(1).split("dated")[0].split("Tando")[0]
-            extracted_data['po_no'] = raw_no.strip()
+# --- 2. NEW MISTRAL AI ENGINE ---
+def analyze_image_with_mistral(image_file, api_key):
+    """Sends image to Mistral Pixtral model for intelligent extraction"""
+    if not api_key:
+        return None, "Please enter a Mistral API Key in the sidebar."
 
-        date_match = re.search(r'(\d{2}[\/\-]\d{2}[\/\-]\d{4})', text)
-        if date_match:
-            extracted_data['date'] = date_match.group(1)
-            
-        if "VETERINARY" in text.upper() or "CVDL" in text.upper():
-            extracted_data['dept'] = "CVDL SINDH TANDO JAM"
-        elif "VACCINE" in text.upper() or "VPU" in text.upper():
-            extracted_data['dept'] = "Vaccine Production Unit Sindh TandoJam (VPU)"
-        elif "BREEDING" in text.upper():
-             extracted_data['dept'] = "Animal Breeding Sindh Hyderabad"
+    try:
+        # Encode image to base64
+        base64_image = base64.b64encode(image_file.read()).decode('utf-8')
+        image_url = f"data:image/jpeg;base64,{base64_image}"
         
-        # Simple Item detection heuristic
-        lines = text.split('\n')
-        for line in lines:
-            if re.search(r'\d{1,5}\s+[\d,]{3,}', line): 
-                 extracted_data['items'].append({"Qty": 0, "Description": line, "Rate": 0})
-        
+        # Reset file pointer
         image_file.seek(0)
-        return extracted_data, None
+
+        client = Mistral(api_key=api_key)
+
+        # The Prompt: We tell the AI exactly what to find
+        prompt = """
+        Analyze this Purchase Order / Supply Order image carefully. 
+        Extract the following fields into a pure JSON object:
+        1. "po_no": The Order Number or Tender Number (e.g., PD/VPU/...).
+        2. "date": The date of the order (format DD.MM.YYYY).
+        3. "buyer": The buyer title (usually 'Project Director' or 'Director').
+        4. "dept": The department name (e.g., CVDL, Vaccine Production Unit).
+        5. "items": A list of items, where each item has:
+           - "Qty": The numeric quantity.
+           - "Description": The full description of the item.
+           - "Rate": The unit rate if visible, otherwise 0.
+        
+        If you are unsure of a value, leave it as an empty string. 
+        Return ONLY the JSON. Do not write 'Here is the JSON'.
+        """
+
+        chat_response = client.chat.complete(
+            model="pixtral-12b-2409", # Mistral's Vision Model
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": image_url}
+                    ]
+                }
+            ]
+        )
+
+        # Parse the AI response
+        response_text = chat_response.choices[0].message.content
+        
+        # Clean up JSON (sometimes AI adds ```json blocks)
+        if "```json" in response_text:
+            response_text = response_text.split("```json")[1].split("```")[0]
+        elif "```" in response_text:
+            response_text = response_text.split("```")[1].split("```")[0]
+            
+        data = json.loads(response_text.strip())
+        return data, None
 
     except Exception as e:
-        image_file.seek(0)
-        return None, str(e)
+        return None, f"Mistral AI Error: {str(e)}"
 
 # --- 3. HELPER FUNCTIONS ---
 def get_last_serial(company, department):
@@ -163,7 +169,7 @@ def img_to_base64(img_bytes):
     if img_bytes is None: return None
     return base64.b64encode(img_bytes.getvalue()).decode()
 
-# --- 4. CSS STYLING ---
+# --- 4. CSS STYLING (PERFECTED) ---
 GLOBAL_CSS = """
 @page { size: A4; margin: 0.5cm 1cm; }
 .simple-margins { @page { margin-top: 2.5in; margin-bottom: 1.5in; } }
@@ -195,7 +201,7 @@ body { font-family: Arial, sans-serif; font-size: 10pt; line-height: 1.2; displa
 .black-header th { background-color: black !important; color: white !important; }
 """
 
-# --- 5. TEMPLATES ---
+# --- 5. TEMPLATES (UNCHANGED) ---
 TEMPLATE_GST = """
 <html><head><style>""" + GLOBAL_CSS + """</style></head><body>
     <div class="title-box"><div class="main-title gst-title">SALES TAX INVOICE</div></div>
@@ -285,11 +291,17 @@ def generate_docs(company_name, dept_name, buyer_name, items_data, po_no, po_dat
     return zip_buffer.getvalue(), final_serial
 
 # --- 7. UI ---
-st.set_page_config(page_title="Invoice Master", layout="wide")
+st.set_page_config(page_title="Invoice Master (Mistral AI)", layout="wide")
 if 'gen_zip' not in st.session_state: st.session_state.gen_zip = None
 if 'gen_serial' not in st.session_state: st.session_state.gen_serial = ""
 
-st.title("Auto-Document Generator (Cloud Ready)")
+st.title("Auto-Document Generator (Mistral AI Powered)")
+
+# Sidebar for API Key
+with st.sidebar:
+    st.header("🔑 AI Configuration")
+    mistral_key = st.text_input("Mistral API Key", type="password", help="Get key from console.mistral.ai")
+    st.info("Paste your Mistral Key here to enable AI extraction.")
 
 col1, col2 = st.columns([1, 2])
 with col1:
@@ -300,7 +312,7 @@ with col1:
 
 with col2:
     st.subheader("2. Order Details")
-    uploaded_img = st.file_uploader("Upload Scan for OCR (JPG/PNG)", type=['png', 'jpg', 'jpeg'])
+    uploaded_img = st.file_uploader("Upload Scan for AI Analysis (JPG/PNG)", type=['png', 'jpg', 'jpeg'])
     
     extracted_po = ""
     extracted_date = datetime.now().strftime("%d-%m-%Y")
@@ -309,14 +321,22 @@ with col2:
     current_items = [{"Qty": 0, "Description": "", "Rate": 0}]
 
     if uploaded_img:
-        with st.spinner("Analyzing image..."):
-            ocr_data, error = perform_ocr_extraction(uploaded_img)
-            if ocr_data:
-                st.success("Extracted!")
-                extracted_po = ocr_data.get('po_no', "")
-                extracted_date = ocr_data.get('date', "") or extracted_date
-                extracted_dept = ocr_data.get('dept', "") or extracted_dept
-                if ocr_data.get('items'): current_items = ocr_data['items']
+        if st.button("🚀 Analyze with Mistral AI"):
+            with st.spinner("Mistral AI is reading the document..."):
+                ai_data, error = analyze_image_with_mistral(uploaded_img, mistral_key)
+                if error:
+                    st.error(error)
+                elif ai_data:
+                    st.success("Analysis Complete!")
+                    extracted_po = ai_data.get('po_no', "")
+                    extracted_date = ai_data.get('date', "") or extracted_date
+                    extracted_dept = ai_data.get('dept', "") or extracted_dept
+                    extracted_buyer = ai_data.get('buyer', "") or extracted_buyer
+                    if ai_data.get('items'): current_items = ai_data['items']
+                    
+                    # Update session state
+                    st.session_state.editor_df = pd.DataFrame(current_items)
+                    st.session_state.last_img = uploaded_img.name
     
     col_a, col_b = st.columns(2)
     po_no = col_a.text_input("Order No", value=extracted_po)
@@ -324,9 +344,8 @@ with col2:
     buyer_name = st.text_input("Messers", value=extracted_buyer)
     dept_key = st.text_input("Department/Address", value=extracted_dept)
     
-    if 'editor_df' not in st.session_state or (uploaded_img and st.session_state.get('last_img') != uploaded_img.name):
+    if 'editor_df' not in st.session_state:
         st.session_state.editor_df = pd.DataFrame(current_items)
-        if uploaded_img: st.session_state.last_img = uploaded_img.name
 
     df_items = st.data_editor(st.session_state.editor_df, num_rows="dynamic", use_container_width=True)
     
@@ -345,5 +364,4 @@ with col2:
 
 if st.session_state.gen_zip:
     st.success(f"Ready: Serial {st.session_state.gen_serial}")
-    st.warning("Note: On the free cloud, serial numbers may reset if the app restarts. You can manually set them above.")
     st.download_button(label="Download ZIP", data=st.session_state.gen_zip, file_name=f"Docs_{st.session_state.gen_serial}.zip", mime="application/zip")
