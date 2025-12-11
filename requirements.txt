@@ -1,0 +1,8 @@
+streamlit
+pandas
+jinja2
+weasyprint
+num2words
+pytesseract
+opencv-python-headless
+numpy
