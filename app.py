@@ -5,16 +5,18 @@ import json
 import os
 import base64
 import zipfile
+import re
+import cv2
+import numpy as np
 from datetime import datetime
 from jinja2 import Template
 from weasyprint import HTML, CSS
 from num2words import num2words
-from mistralai import Mistral  # NEW LIBRARY
+from mistralai import Mistral
 
-# --- 1. CONFIGURATION & DATABASE ---
+# --- 1. CONFIGURATION ---
 SERIAL_FILE = 'serial_tracker.json'
 
-# --- YOUR COMPANY DATABASE (UNCHANGED) ---
 COMPANIES = {
     "M/S National Traders": {
         "template_type": "logo",
@@ -81,68 +83,39 @@ DEPARTMENTS = [
     "Animal Husbandry"
 ]
 
-# --- 2. NEW MISTRAL AI ENGINE ---
-def analyze_image_with_mistral(image_file, api_key):
-    """Sends image to Mistral Pixtral model for intelligent extraction"""
-    if not api_key:
-        return None, "Please enter a Mistral API Key in the sidebar."
-
+# --- 2. MISTRAL AI ENGINE ---
+def analyze_with_mistral(image_file, api_key):
+    if not api_key: return None, "Please enter API Key in sidebar."
     try:
-        # Encode image to base64
         base64_image = base64.b64encode(image_file.read()).decode('utf-8')
-        image_url = f"data:image/jpeg;base64,{base64_image}"
-        
-        # Reset file pointer
         image_file.seek(0)
-
         client = Mistral(api_key=api_key)
-
-        # The Prompt: We tell the AI exactly what to find
+        
         prompt = """
-        Analyze this Purchase Order / Supply Order image carefully. 
-        Extract the following fields into a pure JSON object:
-        1. "po_no": The Order Number or Tender Number (e.g., PD/VPU/...).
-        2. "date": The date of the order (format DD.MM.YYYY).
-        3. "buyer": The buyer title (usually 'Project Director' or 'Director').
-        4. "dept": The department name (e.g., CVDL, Vaccine Production Unit).
-        5. "items": A list of items, where each item has:
-           - "Qty": The numeric quantity.
-           - "Description": The full description of the item.
-           - "Rate": The unit rate if visible, otherwise 0.
-        
-        If you are unsure of a value, leave it as an empty string. 
-        Return ONLY the JSON. Do not write 'Here is the JSON'.
-        """
-
-        chat_response = client.chat.complete(
-            model="pixtral-12b-2409", # Mistral's Vision Model
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": image_url}
-                    ]
-                }
+        Extract data from this Purchase Order image into JSON:
+        {
+            "po_no": "Order No string",
+            "date": "DD.MM.YYYY",
+            "buyer": "Buyer Title (e.g. Project Director)",
+            "dept": "Department Name",
+            "items": [
+                {"Qty": number, "Description": "string", "Rate": number}
             ]
-        )
-
-        # Parse the AI response
-        response_text = chat_response.choices[0].message.content
+        }
+        Return ONLY JSON.
+        """
         
-        # Clean up JSON (sometimes AI adds ```json blocks)
-        if "```json" in response_text:
-            response_text = response_text.split("```json")[1].split("```")[0]
-        elif "```" in response_text:
-            response_text = response_text.split("```")[1].split("```")[0]
-            
-        data = json.loads(response_text.strip())
-        return data, None
-
+        resp = client.chat.complete(
+            model="pixtral-12b-2409",
+            messages=[{"role":"user", "content":[{"type":"text","text":prompt},{"type":"image_url","image_url":f"data:image/jpeg;base64,{base64_image}"}]}]
+        )
+        content = resp.choices[0].message.content
+        if "```" in content: content = content.split("```json")[-1].split("```")[0]
+        return json.loads(content.strip()), None
     except Exception as e:
-        return None, f"Mistral AI Error: {str(e)}"
+        return None, str(e)
 
-# --- 3. HELPER FUNCTIONS ---
+# --- 3. HELPERS ---
 def get_last_serial(company, department):
     if os.path.exists(SERIAL_FILE):
         try:
@@ -169,7 +142,19 @@ def img_to_base64(img_bytes):
     if img_bytes is None: return None
     return base64.b64encode(img_bytes.getvalue()).decode()
 
-# --- 4. CSS STYLING (PERFECTED) ---
+def clean_float(value):
+    """Safely converts any value to float, handling strings like '1,200' or None"""
+    if value is None: return 0.0
+    try:
+        if isinstance(value, str):
+            # Remove commas and non-numeric chars except dot
+            clean = re.sub(r'[^\d.]', '', value)
+            return float(clean) if clean else 0.0
+        return float(value)
+    except:
+        return 0.0
+
+# --- 4. CSS ---
 GLOBAL_CSS = """
 @page { size: A4; margin: 0.5cm 1cm; }
 .simple-margins { @page { margin-top: 2.5in; margin-bottom: 1.5in; } }
@@ -201,7 +186,7 @@ body { font-family: Arial, sans-serif; font-size: 10pt; line-height: 1.2; displa
 .black-header th { background-color: black !important; color: white !important; }
 """
 
-# --- 5. TEMPLATES (UNCHANGED) ---
+# --- 5. TEMPLATES ---
 TEMPLATE_GST = """
 <html><head><style>""" + GLOBAL_CSS + """</style></head><body>
     <div class="title-box"><div class="main-title gst-title">SALES TAX INVOICE</div></div>
@@ -220,7 +205,7 @@ TEMPLATE_GST = """
     <table class="grid-table">
         <thead><tr><th width="10%">Quantity</th><th width="40%">Description of Goods</th><th width="13%">Value<br>Excl.S.Tax</th><th width="10%">Rate of<br>Sales Tax</th><th width="12%">Total Sales Tax<br>Payable</th><th width="15%">Value Including<br>Sales.Tax</th></tr></thead>
         <tbody>
-            {% for item in items %}<tr><td class="center v-top">{{ item.Qty }} Pkts.</td><td class="v-top">{{ item.Description }}</td><td class="center v-top">{{ "{:,.0f}".format(item.val_excl) }}</td><td class="center v-top">18%</td><td class="center v-top">{{ "{:,.0f}".format(item.tax_val) }}</td><td class="center v-top">{{ "{:,.0f}".format(item.val_incl) }}</td></tr>{% endfor %}
+            {% for item in items %}<tr><td class="center v-top">{{ "{:,.0f}".format(item.Qty) }} Pkts.</td><td class="v-top">{{ item.Description }}</td><td class="center v-top">{{ "{:,.0f}".format(item.val_excl) }}</td><td class="center v-top">18%</td><td class="center v-top">{{ "{:,.0f}".format(item.tax_val) }}</td><td class="center v-top">{{ "{:,.0f}".format(item.val_incl) }}</td></tr>{% endfor %}
             {% if items|length < 12 %}{% for i in range(12 - items|length) %} <tr><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td></tr> {% endfor %}{% endif %}
         </tbody>
         <tfoot><tr class="total-row"><td colspan="2" class="right">TOTAL</td><td class="center">{{ "{:,.0f}".format(totals.excl) }}</td><td class="center">18%</td><td class="center">{{ "{:,.0f}".format(totals.tax) }}</td><td class="center">{{ "{:,.0f}".format(totals.incl) }}</td></tr></tfoot>
@@ -236,7 +221,7 @@ TEMPLATE_BILL = """
     <table class="grid-table {% if comp.template_type == 'logo' %}black-header{% endif %}">
         <thead><tr><th width="8%">S.No.</th><th width="15%">QTY.</th><th width="47%">PARTICULARS</th><th width="15%">RATE</th><th width="15%">AMOUNT</th></tr></thead>
         <tbody>
-            {% for item in items %}<tr><td class="center v-top">{{ loop.index }}</td><td class="center v-top">{{ item.Qty }} Pkts.</td><td class="v-top">{{ item.Description }}</td><td class="center v-top">{{ "{:,.0f}".format(item.Rate) }}</td><td class="center v-top bold">{{ "{:,.0f}".format(item.val_incl) }}</td></tr>{% endfor %}
+            {% for item in items %}<tr><td class="center v-top">{{ loop.index }}</td><td class="center v-top">{{ "{:,.0f}".format(item.Qty) }} Pkts.</td><td class="v-top">{{ item.Description }}</td><td class="center v-top">{{ "{:,.0f}".format(item.Rate) }}</td><td class="center v-top bold">{{ "{:,.0f}".format(item.val_incl) }}</td></tr>{% endfor %}
             {% if items|length < 12 %}{% for i in range(12 - items|length) %} <tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr> {% endfor %}{% endif %}
         </tbody>
         <tfoot><tr class="total-row"><td colspan="4" class="right" style="{% if comp.template_type == 'logo' %}background:black; color:white;{% endif %}">TOTAL</td><td class="center">{{ "{:,.0f}".format(totals.incl) }}</td></tr></tfoot>
@@ -252,7 +237,7 @@ TEMPLATE_CHALLAN = """
     <table class="grid-table">
         <thead><tr><th width="8%">S.No.</th><th width="15%">QUANTITY</th><th width="77%">PARTICULARS</th></tr></thead>
         <tbody>
-            {% for item in items %}<tr><td class="center v-top">{{ loop.index }}</td><td class="center v-top">{{ item.Qty }} Pkts.</td><td class="v-top">{{ item.Description }}</td></tr>{% endfor %}
+            {% for item in items %}<tr><td class="center v-top">{{ loop.index }}</td><td class="center v-top">{{ "{:,.0f}".format(item.Qty) }} Pkts.</td><td class="v-top">{{ item.Description }}</td></tr>{% endfor %}
             {% if items|length < 14 %}{% for i in range(14 - items|length) %} <tr><td>&nbsp;</td><td></td><td></td></tr> {% endfor %}{% endif %}
         </tbody>
     </table>
@@ -269,18 +254,39 @@ def generate_docs(company_name, dept_name, buyer_name, items_data, po_no, po_dat
     else:
         update_serial(company_name, dept_name)
         final_serial = f"{get_last_serial(company_name, dept_name):04d}"
+        
     comp_data = COMPANIES[company_name]
     processed_items = []
     t_excl = 0; t_tax = 0; t_incl = 0
+    
+    # --- CRITICAL FIX: CLEANING THE DATA BEFORE MATH ---
     for item in items_data:
-        try: qty = float(item['Qty']); rate = float(item['Rate'])
-        except: qty = 0; rate = 0
-        val_incl = qty * rate; val_excl = val_incl / 1.18; tax = val_incl - val_excl
+        # 1. Clean the numbers. If "5,000", convert to 5000.0. If empty, 0.0
+        qty = clean_float(item.get('Qty', 0))
+        rate = clean_float(item.get('Rate', 0))
+        desc = item.get('Description', '')
+        
+        # 2. Do Math
+        val_incl = qty * rate
+        val_excl = val_incl / 1.18
+        tax = val_incl - val_excl
+        
         t_excl += val_excl; t_tax += tax; t_incl += val_incl
-        processed_items.append({**item, 'val_excl': val_excl, 'tax_val': tax, 'val_incl': val_incl})
+        
+        # 3. Save CLEANED numbers so Jinja doesn't crash on "dirty" strings
+        processed_items.append({
+            'Qty': qty,          # <-- This is now definitely a float
+            'Description': desc,
+            'Rate': rate,        # <-- This is now definitely a float
+            'val_excl': val_excl,
+            'tax_val': tax,
+            'val_incl': val_incl
+        })
+
     totals = {'excl': t_excl, 'tax': t_tax, 'incl': t_incl}
     try: amount_words = f"Rupees {num2words(int(round(t_incl))).title().replace('-', ' ')} Only"
     except: amount_words = "Rupees .............................................."
+    
     context = {'comp': comp_data, 'dept': dept_name, 'buyer_name': buyer_name, 'items': processed_items, 'po_no': po_no, 'date': po_date, 'serial': final_serial, 'totals': totals, 'amount_words': amount_words, 'logo_b64': logo_b64}
     
     zip_buffer = io.BytesIO()
@@ -291,17 +297,15 @@ def generate_docs(company_name, dept_name, buyer_name, items_data, po_no, po_dat
     return zip_buffer.getvalue(), final_serial
 
 # --- 7. UI ---
-st.set_page_config(page_title="Invoice Master (Mistral AI)", layout="wide")
+st.set_page_config(page_title="Invoice Master (Fixed)", layout="wide")
 if 'gen_zip' not in st.session_state: st.session_state.gen_zip = None
 if 'gen_serial' not in st.session_state: st.session_state.gen_serial = ""
 
-st.title("Auto-Document Generator (Mistral AI Powered)")
+st.title("Auto-Document Generator (Mistral AI + Fixed)")
 
-# Sidebar for API Key
 with st.sidebar:
     st.header("🔑 AI Configuration")
-    mistral_key = st.text_input("Mistral API Key", type="password", help="Get key from console.mistral.ai")
-    st.info("Paste your Mistral Key here to enable AI extraction.")
+    mistral_key = st.text_input("Mistral API Key", type="password")
 
 col1, col2 = st.columns([1, 2])
 with col1:
@@ -312,41 +316,35 @@ with col1:
 
 with col2:
     st.subheader("2. Order Details")
-    uploaded_img = st.file_uploader("Upload Scan for AI Analysis (JPG/PNG)", type=['png', 'jpg', 'jpeg'])
+    uploaded_img = st.file_uploader("Upload Scan for AI (JPG/PNG)", type=['png', 'jpg', 'jpeg'])
     
     extracted_po = ""
-    extracted_date = datetime.now().strftime("%d-%m-%Y")
+    extracted_date = datetime.now().strftime("%d.%m.%Y")
     extracted_dept = "CVDL SINDH TANDO JAM"
     extracted_buyer = "The Project Director"
     current_items = [{"Qty": 0, "Description": "", "Rate": 0}]
 
-    if uploaded_img:
-        if st.button("🚀 Analyze with Mistral AI"):
-            with st.spinner("Mistral AI is reading the document..."):
-                ai_data, error = analyze_image_with_mistral(uploaded_img, mistral_key)
-                if error:
-                    st.error(error)
-                elif ai_data:
-                    st.success("Analysis Complete!")
-                    extracted_po = ai_data.get('po_no', "")
-                    extracted_date = ai_data.get('date', "") or extracted_date
-                    extracted_dept = ai_data.get('dept', "") or extracted_dept
-                    extracted_buyer = ai_data.get('buyer', "") or extracted_buyer
-                    if ai_data.get('items'): current_items = ai_data['items']
-                    
-                    # Update session state
-                    st.session_state.editor_df = pd.DataFrame(current_items)
-                    st.session_state.last_img = uploaded_img.name
-    
+    if uploaded_img and st.button("🚀 Analyze with Mistral"):
+        with st.spinner("AI Reading..."):
+            ai_data, error = analyze_with_mistral(uploaded_img, mistral_key)
+            if error: st.error(error)
+            elif ai_data:
+                st.success("Extracted!")
+                extracted_po = ai_data.get('po_no', "")
+                extracted_date = ai_data.get('date', "") or extracted_date
+                extracted_dept = ai_data.get('dept', "") or extracted_dept
+                extracted_buyer = ai_data.get('buyer', "") or extracted_buyer
+                if ai_data.get('items'): current_items = ai_data['items']
+                st.session_state.editor_df = pd.DataFrame(current_items)
+                st.session_state.last_img = uploaded_img.name
+
     col_a, col_b = st.columns(2)
     po_no = col_a.text_input("Order No", value=extracted_po)
     po_dt = col_b.text_input("Date", value=extracted_date)
     buyer_name = st.text_input("Messers", value=extracted_buyer)
     dept_key = st.text_input("Department/Address", value=extracted_dept)
     
-    if 'editor_df' not in st.session_state:
-        st.session_state.editor_df = pd.DataFrame(current_items)
-
+    if 'editor_df' not in st.session_state: st.session_state.editor_df = pd.DataFrame(current_items)
     df_items = st.data_editor(st.session_state.editor_df, num_rows="dynamic", use_container_width=True)
     
     st.write("---")
@@ -357,6 +355,7 @@ with col2:
             logo_b64 = img_to_base64(logo) if logo else None
             try: items_list = df_items.to_dict('records')
             except: items_list = []
+            # This call now uses the SAFE function
             zip_data, new_serial = generate_docs(comp_key, dept_key, buyer_name, items_list, po_no, po_dt, logo_b64, manual_serial)
             st.session_state.gen_zip = zip_data
             st.session_state.gen_serial = new_serial
