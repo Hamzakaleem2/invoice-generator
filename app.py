@@ -115,7 +115,7 @@ def analyze_with_mistral(image_file, api_key):
     except Exception as e:
         return None, str(e)
 
-# --- 3. HELPERS ---
+# --- 3. HELPER FUNCTIONS ---
 def get_last_serial(company, department):
     try:
         with open(SERIAL_FILE, 'r') as f: return json.load(f).get(f"{company}_{department}", 0)
@@ -134,6 +134,12 @@ def update_serial(company, department, specific_val=None):
         data[key] = data.get(key, 0) + 1
     with open(SERIAL_FILE, 'w') as f: json.dump(data, f)
 
+def img_to_base64(img_bytes):
+    if img_bytes is None: return None
+    # Ensure pointer is at start
+    img_bytes.seek(0)
+    return base64.b64encode(img_bytes.read()).decode()
+
 def clean_float(value):
     if value is None: return 0.0
     try:
@@ -141,8 +147,8 @@ def clean_float(value):
         return float(value)
     except: return 0.0
 
-# --- 4. CSS GENERATOR (DYNAMIC MARGINS) ---
-def get_css(is_simple_template):
+# --- 4. CSS GENERATOR ---
+def get_css(template_mode="standard"):
     # Base CSS
     css = """
     body { font-family: Arial, sans-serif; font-size: 10pt; line-height: 1.2; }
@@ -157,7 +163,7 @@ def get_css(is_simple_template):
         font-family: "Times New Roman", serif; 
         font-weight: bold; 
         display: inline-block; 
-        text-decoration: underline; /* Single Underline */
+        text-decoration: underline;
     }
     .gst-title { font-size: 24pt; }
     .bill-title { font-size: 22pt; }
@@ -167,10 +173,10 @@ def get_css(is_simple_template):
     .grid-table th { background-color: white; color: black; font-weight: bold; text-align: center; border: 1px solid black; padding: 4px; font-size: 9pt; }
     .grid-table td { border: 1px solid black; padding: 4px; font-size: 9pt; word-wrap: break-word; }
     
-    /* GST INFO TABLE (Partition Added) */
+    /* GST INFO TABLE */
     .gst-info-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; border: 3px solid black; }
     .gst-info-table td { border: none !important; padding: 5px; vertical-align: top; }
-    .gst-partition { border-right: 2px solid black !important; } /* The Partition Line */
+    .gst-partition { border-right: 2px solid black !important; }
     .gst-info-label { font-weight: bold; width: 15%; }
     
     /* LAYOUTS */
@@ -191,18 +197,18 @@ def get_css(is_simple_template):
     """
     
     # DYNAMIC MARGINS
-    if is_simple_template:
-        # Letterhead Margins
+    if template_mode == "letterhead":
+        # For Bill/Challan on Letterhead: 2.5 inch top margin
         css += "@page { size: A4; margin-top: 2.5in; margin-bottom: 1.5in; margin-left: 1cm; margin-right: 1cm; }"
     else:
-        # Standard Margins
+        # Standard: For GST (Always) and Logo-style Bill/Challan
         css += "@page { size: A4; margin: 0.5cm 1cm; }"
         
     return css
 
-# --- 5. TEMPLATES ---
+# --- 5. TEMPLATES (Updated with Loop for Filler Rows) ---
 
-# GST: Added Partition class to middle cells, Autofit Column Widths
+# GST Template: Always uses standard CSS. Auto-fills to ~20 rows.
 TEMPLATE_GST = """
 <html><head><style>{{ css }}</style></head><body>
     <div class="title-box"><div class="main-title gst-title">SALES TAX INVOICE</div></div>
@@ -258,7 +264,12 @@ TEMPLATE_GST = """
                 <td class="center v-top">{{ "{:,.0f}".format(item.val_incl) }}</td>
             </tr>
             {% endfor %}
-            {% if items|length < 12 %}{% for i in range(12 - items|length) %} <tr><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td></tr> {% endfor %}{% endif %}
+            {% set filler_count = 20 - items|length %}
+            {% if filler_count > 0 %}
+                {% for i in range(filler_count) %}
+                <tr><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td></tr>
+                {% endfor %}
+            {% endif %}
         </tbody>
         <tfoot>
             <tr class="total-row">
@@ -274,7 +285,7 @@ TEMPLATE_GST = """
 </body></html>
 """
 
-# BILL: Removed duplicate Bill No, Autofit Columns
+# Bill Template: Auto-fills to ~18 rows.
 TEMPLATE_BILL = """
 <html><head><style>{{ css }}</style></head><body>
     {% if comp.template_type == 'logo' %}
@@ -322,7 +333,12 @@ TEMPLATE_BILL = """
                 <td class="center v-top bold">{{ "{:,.0f}".format(item.val_incl) }}</td>
             </tr>
             {% endfor %}
-            {% if items|length < 12 %}{% for i in range(12 - items|length) %} <tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr> {% endfor %}{% endif %}
+            {% set filler_count = 18 - items|length %}
+            {% if filler_count > 0 %}
+                {% for i in range(filler_count) %}
+                <tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr>
+                {% endfor %}
+            {% endif %}
         </tbody>
         <tfoot>
             <tr class="total-row">
@@ -337,7 +353,7 @@ TEMPLATE_BILL = """
 </body></html>
 """
 
-# CHALLAN: Autofit Columns, Added Signature Spacing
+# Challan Template: Auto-fills to ~18 rows.
 TEMPLATE_CHALLAN = """
 <html><head><style>{{ css }}</style></head><body>
     {% if comp.template_type == 'logo' %}
@@ -383,13 +399,19 @@ TEMPLATE_CHALLAN = """
                 <td class="v-top">{{ item.Description }}</td>
             </tr>
             {% endfor %}
-            {% if items|length < 14 %}{% for i in range(14 - items|length) %} <tr><td>&nbsp;</td><td></td><td></td></tr> {% endfor %}{% endif %}
+            {% set filler_count = 18 - items|length %}
+            {% if filler_count > 0 %}
+                {% for i in range(filler_count) %}
+                <tr><td>&nbsp;</td><td></td><td></td></tr>
+                {% endfor %}
+            {% endif %}
         </tbody>
     </table>
     
     <div class="center italic bold" style="margin-top: 20px; border: 1px solid black; padding: 5px;">Received above mentioned Goods checked and found to be good condition</div>
     
-    <br><br><br> <div class="footer-row signature-spacing">
+    <br><br><br>
+    <div class="footer-row signature-spacing">
         <div class="sig-line">Receiver's Signature</div>
         <div class="sig-line">Checked by:</div>
         <div class="sig-line">For {{ comp.footer_title }}</div>
@@ -431,12 +453,17 @@ def generate_docs(comp_key, dept_name, buyer_name, items_data, po_no, po_date, l
     try: amount_words = f"Rupees {num2words(int(round(t_incl))).title().replace('-', ' ')} Only"
     except: amount_words = "Rupees .............................................."
     
-    # Dynamic CSS based on template type
-    is_simple = (comp_data['template_type'] == 'simple')
-    dynamic_css = get_css(is_simple)
+    # 1. GST CSS: Always Standard Margins
+    gst_css = get_css("standard")
     
-    context = {
-        'css': dynamic_css,
+    # 2. Bill/Challan CSS: Depends on template type
+    if comp_data['template_type'] == 'simple':
+        doc_css = get_css("letterhead")
+    else:
+        doc_css = get_css("standard")
+    
+    # Base Context
+    base_context = {
         'comp': comp_data, 'dept': dept_name, 'buyer_name': buyer_name, 
         'items': processed_items, 'po_no': po_no, 'date': po_date, 
         'serial': final_serial, 'totals': totals, 'amount_words': amount_words, 
@@ -445,13 +472,17 @@ def generate_docs(comp_key, dept_name, buyer_name, items_data, po_no, po_date, l
     
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, 'a', zipfile.ZIP_DEFLATED, False) as zf:
-        zf.writestr(f"1_GST_{final_serial}.pdf", HTML(string=Template(TEMPLATE_GST).render(**context)).write_pdf())
-        zf.writestr(f"2_Bill_{final_serial}.pdf", HTML(string=Template(TEMPLATE_BILL).render(**context)).write_pdf())
-        zf.writestr(f"3_Challan_{final_serial}.pdf", HTML(string=Template(TEMPLATE_CHALLAN).render(**context)).write_pdf())
+        # Generate GST with GST CSS
+        zf.writestr(f"1_GST_{final_serial}.pdf", HTML(string=Template(TEMPLATE_GST).render(**base_context, css=gst_css)).write_pdf())
+        
+        # Generate Bill/Challan with Doc CSS
+        zf.writestr(f"2_Bill_{final_serial}.pdf", HTML(string=Template(TEMPLATE_BILL).render(**base_context, css=doc_css)).write_pdf())
+        zf.writestr(f"3_Challan_{final_serial}.pdf", HTML(string=Template(TEMPLATE_CHALLAN).render(**base_context, css=doc_css)).write_pdf())
+        
     return zip_buffer.getvalue(), final_serial
 
 # --- 7. UI ---
-st.set_page_config(page_title="Invoice Master (Final)", layout="wide")
+st.set_page_config(page_title="Invoice Master (Final Fix)", layout="wide")
 if 'gen_zip' not in st.session_state: st.session_state.gen_zip = None
 if 'gen_serial' not in st.session_state: st.session_state.gen_serial = ""
 
@@ -463,7 +494,7 @@ with st.sidebar:
 col1, col2 = st.columns([1, 2])
 with col1:
     comp_key = st.selectbox("Company", list(COMPANIES.keys()))
-    manual_serial = st.text_input("Manual Serial No.")
+    manual_serial = st.text_input("Manual Serial No.", placeholder="Override Auto-Serial")
     logo = st.file_uploader("Upload Logo", type=['png', 'jpg'])
 
 with col2:
@@ -507,10 +538,14 @@ with col2:
     
     st.write("---")
     if st.button("Generate Documents", type="primary"):
+        # Fix Scope issue: Ensure logo_b64 is defined safely
+        logo_b64 = None
+        if logo:
+            logo_b64 = img_to_base64(logo)
+            
         if COMPANIES[comp_key]['template_type'] == 'logo' and not logo:
             st.error("Logo required for National Traders!")
         else:
-            logo_b64 = img_to_base64(logo) if logo else None
             try: items_list = df_items.to_dict('records')
             except: items_list = []
             zip_data, new_serial = generate_docs(comp_key, dept_key, buyer_name, items_list, po_no, po_dt, logo_b64, manual_serial)
