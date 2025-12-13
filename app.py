@@ -12,8 +12,7 @@ from num2words import num2words
 from mistralai import Mistral
 
 # --- 1. SETTINGS & API KEY ---
-# Yahan apni key paste karein taake baar baar na dalni pade.
-MISTRAL_API_KEY = "HvCqGQtSLzkxu2C3gmPyWm8Xg5wNktly"  
+MISTRAL_API_KEY = "HvCqGQtSLzkxu2C3gmPyWm8Xg5wNktly"  # <--- APNI KEY YAHAN PASTE KAREIN
 
 SERIAL_FILE = 'serial_tracker.json'
 
@@ -26,7 +25,7 @@ COMPANIES = {
         "ntn": "1417156-2",
         "strn": "01-01-9018-006-64",
         "header_title": "NATIONAL TRADERS",
-        "header_sub": "", # Removed "Total Scientific Solution" as requested
+        "header_sub": "",
         "challan_sub": "DEALERS: DIAGNOSTIC REAGENT CHEMICALS, SURGICAL & SCIENTIFIC INSTRUMENTS, LABORATORY EQUIPMENTS, GLASSWARE, ELECTRO MEDICAL EQUIPMENTS, HOSPITAL EQUIPMENTS & GENERAL ORDER SUPPLIER",
         "footer_title": "NATIONAL TRADERS"
     },
@@ -84,43 +83,22 @@ DEPARTMENTS = [
     "Animal Husbandry"
 ]
 
-# --- 3. AI ENGINE (Auto-Trigger) ---
-def analyze_with_mistral(image_file):
-    # Use the hardcoded key
-    api_key = MISTRAL_API_KEY
-    if "YOUR_MISTRAL_API_KEY" in api_key:
-        return None, "Please set the MISTRAL_API_KEY in app.py code."
+# --- 3. HELPERS & CLEANING ---
+def clean_buyer_name(text):
+    """Forcefully removes names and keeps only titles"""
+    if not text: return ""
+    text_upper = text.upper()
     
-    try:
-        base64_image = base64.b64encode(image_file.read()).decode('utf-8')
-        image_file.seek(0)
-        client = Mistral(api_key=api_key)
+    # Priority Check: If it contains Director, just say "The Project Director"
+    if "PROJECT DIRECTOR" in text_upper:
+        return "The Project Director"
+    if "DIRECTOR" in text_upper and "VETERINARY" in text_upper:
+        return "Director of Veterinary Research and Diagnosis" # Specific case
+    if "DIRECTOR" in text_upper:
+        return "The Director"
         
-        # Note: We do NOT ask for Dept here anymore
-        prompt = """
-        Extract from this Purchase Order image:
-        {
-            "po_no": "Order No string",
-            "date": "DD.MM.YYYY",
-            "buyer": "Buyer Title (e.g. Project Director or Director ONLY)",
-            "items": [
-                {"Qty": number, "Description": "string", "Rate": number}
-            ]
-        }
-        Return ONLY JSON.
-        """
-        
-        resp = client.chat.complete(
-            model="pixtral-12b-2409",
-            messages=[{"role":"user", "content":[{"type":"text","text":prompt},{"type":"image_url","image_url":f"data:image/jpeg;base64,{base64_image}"}]}]
-        )
-        content = resp.choices[0].message.content
-        if "```" in content: content = content.split("```json")[-1].split("```")[0]
-        return json.loads(content.strip()), None
-    except Exception as e:
-        return None, str(e)
+    return text
 
-# --- 4. HELPERS ---
 def get_last_serial(company, department):
     try:
         with open(SERIAL_FILE, 'r') as f: return json.load(f).get(f"{company}_{department}", 0)
@@ -150,6 +128,41 @@ def clean_float(value):
         return float(value)
     except: return 0.0
 
+# --- 4. AI ENGINE ---
+def analyze_with_mistral(image_file):
+    api_key = MISTRAL_API_KEY
+    if "YOUR_MISTRAL_API_KEY" in api_key:
+        return None, "Please set MISTRAL_API_KEY in app.py"
+    
+    try:
+        base64_image = base64.b64encode(image_file.read()).decode('utf-8')
+        image_file.seek(0)
+        client = Mistral(api_key=api_key)
+        
+        # STRICTER PROMPT
+        prompt = """
+        Extract from Purchase Order:
+        {
+            "po_no": "Order No string",
+            "date": "DD.MM.YYYY",
+            "buyer": "Find the Designation (e.g. 'Project Director'). DO NOT include the person's name.",
+            "items": [
+                {"Qty": number, "Description": "string", "Rate": number}
+            ]
+        }
+        Return ONLY JSON.
+        """
+        
+        resp = client.chat.complete(
+            model="pixtral-12b-2409",
+            messages=[{"role":"user", "content":[{"type":"text","text":prompt},{"type":"image_url","image_url":f"data:image/jpeg;base64,{base64_image}"}]}]
+        )
+        content = resp.choices[0].message.content
+        if "```" in content: content = content.split("```json")[-1].split("```")[0]
+        return json.loads(content.strip()), None
+    except Exception as e:
+        return None, str(e)
+
 # --- 5. CSS & TEMPLATES ---
 def get_css(template_mode="standard"):
     css = """
@@ -164,7 +177,7 @@ def get_css(template_mode="standard"):
         font-family: "Times New Roman", serif; 
         font-weight: bold; 
         display: inline-block; 
-        text-decoration: underline; /* Single Underline Fixed */
+        text-decoration: underline;
     }
     .gst-title { font-size: 24pt; }
     .bill-title { font-size: 22pt; }
@@ -173,13 +186,11 @@ def get_css(template_mode="standard"):
     .grid-table th { background-color: white; color: black; font-weight: bold; text-align: center; border: 1px solid black; padding: 4px; font-size: 9pt; }
     .grid-table td { border: 1px solid black; padding: 4px; font-size: 9pt; word-wrap: break-word; }
     
-    /* GST Specifics */
     .gst-info-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; border: 3px solid black; }
     .gst-info-table td { border: none !important; padding: 5px; vertical-align: top; }
-    .gst-partition { border-right: 2px solid black !important; } /* Partition Line Added */
+    .gst-partition { border-right: 2px solid black !important; }
     .gst-info-label { font-weight: bold; width: 15%; }
     
-    /* Layouts */
     .nt-header { border: 2px solid #74c69d; border-radius: 10px; padding: 10px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
     .nt-logo { width: 100px; height: auto; }
     .simple-header { text-align: center; margin-bottom: 20px; }
@@ -196,12 +207,9 @@ def get_css(template_mode="standard"):
     """
     
     if template_mode == "letterhead":
-        # 2.5 inch top margin for Letterheads
         css += "@page { size: A4; margin-top: 2.5in; margin-bottom: 1.5in; margin-left: 1cm; margin-right: 1cm; }"
     else:
-        # Standard Centered
         css += "@page { size: A4; margin: 0.5cm 1cm; }"
-        
     return css
 
 TEMPLATE_GST = """
@@ -374,7 +382,7 @@ def generate_docs(comp_key, dept_name, buyer_name, items_data, po_no, po_date, l
     except: amount_words = "Rupees .............................................."
     
     is_simple = (comp_data['template_type'] == 'simple')
-    gst_css = get_css("standard")
+    gst_css = get_css("standard") 
     doc_css = get_css("letterhead" if is_simple else "standard")
     
     context = {'comp': comp_data, 'dept': dept_name, 'buyer_name': buyer_name, 'items': processed_items, 'po_no': po_no, 'date': po_date, 'serial': final_serial, 'totals': totals, 'amount_words': amount_words, 'logo_b64': logo_b64}
@@ -397,7 +405,7 @@ col1, col2 = st.columns([1, 2])
 with col1:
     st.subheader("1. Setup")
     comp_key = st.selectbox("Company", list(COMPANIES.keys()))
-    dept_key = st.selectbox("Department", DEPARTMENTS) # Dropdown Added
+    dept_key = st.selectbox("Department", DEPARTMENTS)
     manual_serial = st.text_input("Manual Serial No.", placeholder="Override Auto-Serial")
     logo = st.file_uploader("Upload Logo", type=['png', 'jpg'])
 
@@ -405,13 +413,11 @@ with col2:
     st.subheader("2. Order")
     uploaded_img = st.file_uploader("Scan Image (Auto-AI)", type=['png', 'jpg', 'jpeg'])
     
-    # State Init
     extracted_po = ""
     extracted_date = datetime.now().strftime("%d.%m.%Y")
     extracted_buyer = "The Project Director"
     current_items = [{"Qty": 0, "Description": "", "Rate": 0}]
 
-    # AUTO TRIGGER AI
     if uploaded_img:
         if 'last_img' not in st.session_state or st.session_state.last_img != uploaded_img.name:
             with st.spinner("Processing Image..."):
@@ -422,7 +428,10 @@ with col2:
                     st.success("Extracted!")
                     extracted_po = ai_data.get('po_no', "")
                     extracted_date = ai_data.get('date', "") or extracted_date
-                    extracted_buyer = ai_data.get('buyer', "") or extracted_buyer
+                    # CLEAN NAME HERE
+                    raw_buyer = ai_data.get('buyer', "")
+                    extracted_buyer = clean_buyer_name(raw_buyer)
+                    
                     if ai_data.get('items'): current_items = ai_data['items']
                     
                     st.session_state.editor_df = pd.DataFrame(current_items)
