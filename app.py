@@ -85,33 +85,11 @@ DEPARTMENTS = [
 
 # --- 3. HELPERS & CLEANING ---
 def clean_buyer_name(text):
-    """
-    AGGRESSIVE CLEANER:
-    Agar AI ne ghalti se naam (Dr. Shah...) utha liya, ye function usay mita kar
-    sirf Title wapis karega.
-    """
-    if not text: 
-        return "The Project Director" # Default Safe Value
-        
+    if not text: return "The Project Director"
     t = text.upper()
-    
-    # Priority 1: Project Director
-    if "PROJECT" in t and "DIRECTOR" in t:
-        return "The Project Director"
-        
-    # Priority 2: Veterinary Director (Specific Case)
-    if "VETERINARY" in t and "DIRECTOR" in t:
-        return "Director of Veterinary Research and Diagnosis"
-        
-    # Priority 3: Simple Director
-    if "DIRECTOR" in t:
-        return "The Director"
-        
-    # Priority 4: Agar naam hai lekin Title samajh nahi aa raha, to default laga do
-    if "DR." in t or "MR." in t:
-        return "The Project Director"
-        
-    # Agar kuch bhi samajh na aaye, to wahi wapis kardo (ya default laga do)
+    if "PROJECT" in t and "DIRECTOR" in t: return "The Project Director"
+    if "VETERINARY" in t and "DIRECTOR" in t: return "Director of Veterinary Research and Diagnosis"
+    if "DIRECTOR" in t: return "The Director"
     return "The Project Director"
 
 def get_last_serial(company, department):
@@ -148,12 +126,10 @@ def analyze_with_mistral(image_file):
     api_key = MISTRAL_API_KEY
     if "YOUR_MISTRAL_API_KEY" in api_key:
         return None, "Please set MISTRAL_API_KEY in app.py"
-    
     try:
         base64_image = base64.b64encode(image_file.read()).decode('utf-8')
         image_file.seek(0)
         client = Mistral(api_key=api_key)
-        
         prompt = """
         Extract from this Purchase Order image:
         {
@@ -166,7 +142,6 @@ def analyze_with_mistral(image_file):
         }
         Return ONLY JSON.
         """
-        
         resp = client.chat.complete(
             model="pixtral-12b-2409",
             messages=[{"role":"user", "content":[{"type":"text","text":prompt},{"type":"image_url","image_url":f"data:image/jpeg;base64,{base64_image}"}]}]
@@ -187,11 +162,13 @@ def get_css(template_mode="standard"):
     .v-top { vertical-align: top; }
     
     .title-box { text-align: center; margin-bottom: 10px; }
+    /* FIXED: Single Underline */
     .main-title { 
         font-family: "Times New Roman", serif; 
         font-weight: bold; 
         display: inline-block; 
-        text-decoration: underline;
+        text-decoration: underline; 
+        border-bottom: none !important;
     }
     .gst-title { font-size: 24pt; }
     .bill-title { font-size: 22pt; }
@@ -202,11 +179,10 @@ def get_css(template_mode="standard"):
     
     .gst-info-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; border: 3px solid black; }
     .gst-info-table td { border: none !important; padding: 5px; vertical-align: top; }
-    .gst-partition { border-right: 2px solid black !important; }
     .gst-info-label { font-weight: bold; width: 15%; }
     
     .nt-header { border: 2px solid #74c69d; border-radius: 10px; padding: 10px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-    .nt-logo { width: 100px; height: auto; }
+    .nt-logo { width: 120px; height: auto; } /* Logo made bigger */
     .simple-header { text-align: center; margin-bottom: 20px; }
     
     .info-row { margin-bottom: 5px; display: flex; }
@@ -238,23 +214,23 @@ TEMPLATE_GST = """
     
     <table class="gst-info-table">
         <tr>
-            <td class="gst-info-label">Supplier's Name:</td><td width="35%" class="gst-partition">{{ comp.header_title }}</td>
+            <td class="gst-info-label">Supplier's Name:</td><td width="35%" style="border-right: 2px solid black !important;">{{ comp.header_title }}</td>
             <td class="gst-info-label" style="padding-left: 10px;">Buyer's Name:</td><td width="35%">{{ buyer_name }}</td>
         </tr>
         <tr>
-            <td class="gst-info-label">Address:</td><td class="gst-partition">{{ comp.address|safe }}</td>
+            <td class="gst-info-label">Address:</td><td style="border-right: 2px solid black !important;">{{ comp.address|safe }}</td>
             <td class="gst-info-label" style="padding-left: 10px;">Address:</td><td>{{ dept }}</td>
         </tr>
         <tr>
-            <td class="gst-info-label">Telephone:</td><td class="gst-partition">{{ comp.phone }}</td>
+            <td class="gst-info-label">Telephone:</td><td style="border-right: 2px solid black !important;">{{ comp.phone }}</td>
             <td class="gst-info-label" style="padding-left: 10px;">N.T.N No.</td><td></td>
         </tr>
         <tr>
-            <td class="gst-info-label">N.T.N No.</td><td class="gst-partition">{{ comp.ntn }}</td>
+            <td class="gst-info-label">N.T.N No.</td><td style="border-right: 2px solid black !important;">{{ comp.ntn }}</td>
             <td class="gst-info-label" style="padding-left: 10px;">Terms of Sales:</td><td></td>
         </tr>
         <tr>
-            <td class="gst-info-label">S.T.Reg No:</td><td class="gst-partition">{{ comp.strn }}</td>
+            <td class="gst-info-label">S.T.Reg No:</td><td style="border-right: 2px solid black !important;">{{ comp.strn }}</td>
             <td></td><td></td>
         </tr>
     </table>
@@ -271,7 +247,7 @@ TEMPLATE_GST = """
                 <td class="center v-top">{{ "{:,.0f}".format(item.val_excl) }}</td><td class="center v-top">18%</td><td class="center v-top">{{ "{:,.0f}".format(item.tax_val) }}</td><td class="center v-top">{{ "{:,.0f}".format(item.val_incl) }}</td>
             </tr>
             {% endfor %}
-            {% set filler_count = 20 - items|length %}
+            {% set filler_count = 14 - items|length %}
             {% if filler_count > 0 %}{% for i in range(filler_count) %}<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td></tr>{% endfor %}{% endif %}
         </tbody>
         <tfoot>
@@ -287,8 +263,11 @@ TEMPLATE_BILL = """
     {% if comp.template_type == 'logo' %}
         <div class="title-box"><div class="main-title bill-title">BILL/CASH MEMO</div></div>
         <div class="nt-header">
+            <div style="width: 70%; text-align: left;">
+                <div class="main-title" style="font-size: 26pt; border: none; text-decoration: none;">{{ comp.header_title }}</div>
+                <div style="font-size: 9pt;">{{ comp.address|safe }}</div>
+            </div>
             <div class="center" style="width: 30%;">{% if logo_b64 %}<img src="data:image/png;base64,{{ logo_b64 }}" class="nt-logo">{% endif %}</div>
-            <div style="width: 70%; text-align: right;"><div class="main-title" style="font-size: 26pt; border: none;">{{ comp.header_title }}</div><div style="font-size: 9pt;">{{ comp.address|safe }}</div></div>
         </div>
     {% else %}
         <div class="simple-header"><div class="main-title bill-title">BILL</div></div>
@@ -315,7 +294,7 @@ TEMPLATE_BILL = """
             {% for item in items %}
             <tr><td class="center v-top">{{ loop.index }}</td><td class="center v-top">{{ "{:,.0f}".format(item.Qty) }} Pkts.</td><td class="v-top">{{ item.Description }}</td><td class="center v-top">{{ "{:,.0f}".format(item.Rate) }}</td><td class="center v-top bold">{{ "{:,.0f}".format(item.val_incl) }}</td></tr>
             {% endfor %}
-            {% set filler_count = 18 - items|length %}{% if filler_count > 0 %}{% for i in range(filler_count) %}<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr>{% endfor %}{% endif %}
+            {% set filler_count = 14 - items|length %}{% if filler_count > 0 %}{% for i in range(filler_count) %}<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr>{% endfor %}{% endif %}
         </tbody>
         <tfoot><tr class="total-row"><td colspan="4" class="right" style="{% if comp.template_type == 'logo' %}background:black; color:white;{% endif %}">TOTAL</td><td class="center">{{ "{:,.0f}".format(totals.incl) }}</td></tr></tfoot>
     </table>
@@ -328,8 +307,11 @@ TEMPLATE_CHALLAN = """
 <html><head><style>{{ css }}</style></head><body>
     {% if comp.template_type == 'logo' %}
         <div class="nt-header" style="border: none;">
-            <div class="center" style="width: 30%;">{% if logo_b64 %}<img src="data:image/png;base64,{{ logo_b64 }}" class="nt-logo">{% endif %}</div>
-            <div style="width: 70%; text-align: right;"><div class="main-title" style="font-size: 26pt; border: none;">{{ comp.header_title }}</div><div style="font-size: 8pt; font-weight: bold;">{{ comp.challan_sub }}</div></div>
+            <div style="width: 25%;">{% if logo_b64 %}<img src="data:image/png;base64,{{ logo_b64 }}" class="nt-logo">{% endif %}</div>
+            <div style="width: 75%; text-align: center;">
+                <div class="main-title" style="font-size: 26pt; border: none; text-decoration: none;">{{ comp.header_title }}</div>
+                <div style="font-size: 8pt; font-weight: bold;">{{ comp.challan_sub }}</div>
+            </div>
         </div>
         <div class="title-box" style="margin-bottom: 10px;"><div class="main-title" style="font-size: 14pt;">Delivery Challan</div></div>
     {% else %}
@@ -357,7 +339,7 @@ TEMPLATE_CHALLAN = """
             {% for item in items %}
             <tr><td class="center v-top">{{ loop.index }}</td><td class="center v-top">{{ "{:,.0f}".format(item.Qty) }} Pkts.</td><td class="v-top">{{ item.Description }}</td></tr>
             {% endfor %}
-            {% set filler_count = 18 - items|length %}{% if filler_count > 0 %}{% for i in range(filler_count) %}<tr><td>&nbsp;</td><td></td><td></td></tr>{% endfor %}{% endif %}
+            {% set filler_count = 14 - items|length %}{% if filler_count > 0 %}{% for i in range(filler_count) %}<tr><td>&nbsp;</td><td></td><td></td></tr>{% endfor %}{% endif %}
         </tbody>
     </table>
     <div class="center italic bold" style="margin-top: 20px; border: 1px solid black; padding: 5px;">Received above mentioned Goods checked and found to be good condition</div>
