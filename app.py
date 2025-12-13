@@ -17,7 +17,6 @@ from mistralai import Mistral
 MISTRAL_API_KEY = "HvCqGQtSLzkxu2C3gmPyWm8Xg5wNktly" 
 
 SERIAL_FILE = 'serial_tracker.json'
-# Name your logo file EXACTLY this and upload it to GitHub/Folder
 PERMANENT_LOGO_FILE = "nt_logo.png"
 
 # --- 2. COMPANY DATABASE ---
@@ -125,8 +124,11 @@ def clean_float(value):
         return float(value)
     except: return 0.0
 
-def get_estimated_lines(description, width_chars=50):
-    """Calculates visual lines based on text length to adjust fillers."""
+def get_estimated_lines(description, width_chars=60):
+    """
+    Calculates visual lines based on text length.
+    Increased width_chars because column is wider now.
+    """
     if not description: return 1
     newlines = description.count('\n')
     wraps = len(str(description)) // width_chars
@@ -170,7 +172,7 @@ def analyze_with_mistral(image_file):
 def get_css(template_mode="standard"):
     css = """
     @page { size: A4; margin: 0.25in 0.5in; }
-    body { font-family: Arial, sans-serif; font-size: 10pt; line-height: 1.1; }
+    body { font-family: Arial, sans-serif; font-size: 10pt; line-height: 1.2; } /* Increased line-height */
     .bold { font-weight: bold; }
     .right { text-align: right; }
     .center { text-align: center; }
@@ -190,15 +192,14 @@ def get_css(template_mode="standard"):
     .bill-title { font-size: 20pt; }
     
     .grid-table { width: 100%; border-collapse: collapse; margin-top: 5px; table-layout: fixed; }
-    .grid-table th { background-color: white; color: black; font-weight: bold; text-align: center; border: 1px solid black; padding: 3px; font-size: 9pt; }
-    .grid-table td { border: 1px solid black; padding: 3px; font-size: 9pt; word-wrap: break-word; }
+    .grid-table th { background-color: white; color: black; font-weight: bold; text-align: center; border: 1px solid black; padding: 4px; font-size: 9pt; }
+    .grid-table td { border: 1px solid black; padding: 4px; font-size: 10pt; word-wrap: break-word; } /* Increased font/padding */
     
     .gst-info-table { width: 100%; border-collapse: collapse; margin-bottom: 5px; border: 2px solid black; }
     .gst-info-table td { border: none !important; padding: 3px; vertical-align: top; }
     .gst-info-label { font-weight: bold; width: 15%; }
     
     .nt-header { border: 2px solid #74c69d; border-radius: 10px; padding: 5px; margin-bottom: 5px; }
-    /* FIXED LOGO ALIGNMENT FOR BILL */
     .nt-logo { width: 130px; height: auto; display: block; float: right; }
     
     .simple-header { text-align: center; margin-bottom: 10px; }
@@ -218,7 +219,7 @@ def get_css(template_mode="standard"):
         css += "@page { size: A4; margin-top: 2.5in; margin-bottom: 1in; margin-left: 1cm; margin-right: 1cm; }"
     return css
 
-# --- 6. TEMPLATES ---
+# --- 6. TEMPLATES (Updated Column Widths) ---
 
 TEMPLATE_GST = """
 <html><head><style>{{ css }}</style></head><body>
@@ -255,7 +256,7 @@ TEMPLATE_GST = """
     
     <table class="grid-table">
         <thead>
-            <tr><th width="8%">Quantity</th><th width="50%">Description of Goods</th><th width="12%">Value<br>Excl.S.Tax</th><th width="8%">Rate of<br>Sales Tax</th><th width="10%">Total Sales Tax<br>Payable</th><th width="12%">Value Including<br>Sales.Tax</th></tr>
+            <tr><th width="7%">Qty</th><th width="58%">Description of Goods</th><th width="11%">Value<br>Excl.S.Tax</th><th width="6%">Rate<br>S.Tax</th><th width="8%">Total S.Tax<br>Payable</th><th width="10%">Value Incl.<br>Sales.Tax</th></tr>
         </thead>
         <tbody>
             {% for item in items %}
@@ -312,7 +313,9 @@ TEMPLATE_BILL = """
     </table>
     
     <table class="grid-table {% if comp.template_type == 'logo' %}black-header{% endif %}">
-        <thead><tr><th width="4%">S.No.</th><th width="10%">QTY.</th><th width="58%">PARTICULARS</th><th width="14%">RATE</th><th width="14%">AMOUNT</th></tr></thead>
+        <thead>
+            <tr><th width="5%">S.No.</th><th width="8%">QTY.</th><th width="63%">PARTICULARS</th><th width="12%">RATE</th><th width="12%">AMOUNT</th></tr>
+        </thead>
         <tbody>
             {% for item in items %}
             <tr><td class="center v-top">{{ loop.index }}</td><td class="center v-top">{{ "{:,.0f}".format(item.Qty) }} Pkts.</td><td class="v-top">{{ item.Description }}</td><td class="center v-top">{{ "{:,.0f}".format(item.Rate) }}</td><td class="center v-top bold">{{ "{:,.0f}".format(item.val_incl) }}</td></tr>
@@ -363,7 +366,9 @@ TEMPLATE_CHALLAN = """
     </table>
     
     <table class="grid-table">
-        <thead><tr><th width="4%">S.No.</th><th width="10%">QUANTITY</th><th width="86%">PARTICULARS</th></tr></thead>
+        <thead>
+            <tr><th width="5%">S.No.</th><th width="8%">QUANTITY</th><th width="87%">PARTICULARS</th></tr>
+        </thead>
         <tbody>
             {% for item in items %}
             <tr><td class="center v-top">{{ loop.index }}</td><td class="center v-top">{{ "{:,.0f}".format(item.Qty) }} Pkts.</td><td class="v-top">{{ item.Description }}</td></tr>
@@ -377,7 +382,7 @@ TEMPLATE_CHALLAN = """
 </body></html>
 """
 
-# --- 7. GENERATION (SMART ROW LOGIC) ---
+# --- 7. GENERATION (SMART ROW LOGIC + FILL PAGE) ---
 def generate_docs(comp_key, dept_name, buyer_name, items_data, po_no, po_date, logo_b64, manual_serial):
     if manual_serial and manual_serial.strip():
         final_serial = manual_serial.zfill(4)
@@ -390,7 +395,6 @@ def generate_docs(comp_key, dept_name, buyer_name, items_data, po_no, po_date, l
     processed_items = []
     t_excl = 0; t_tax = 0; t_incl = 0
     
-    # Track visual height
     total_visual_lines = 0
     
     for item in items_data:
@@ -398,7 +402,6 @@ def generate_docs(comp_key, dept_name, buyer_name, items_data, po_no, po_date, l
         rate = clean_float(item.get('Rate', 0))
         desc = item.get('Description', '')
         
-        # Calculate visual lines (wrapping)
         lines_this_item = get_estimated_lines(desc)
         total_visual_lines += lines_this_item
         
@@ -417,13 +420,11 @@ def generate_docs(comp_key, dept_name, buyer_name, items_data, po_no, po_date, l
     gst_css = get_css("standard") 
     doc_css = get_css("letterhead" if is_simple else "standard")
     
-    # --- AUTO-DECREMENT/INCREMENT LOGIC ---
-    # Safe limits for A4 page
-    MAX_LINES_GST = 14
-    MAX_LINES_BILL = 18
+    # --- AUTO-DECREMENT/INCREMENT LOGIC (Adjusted for Page Fill) ---
+    # Increased limits to push content down
+    MAX_LINES_GST = 18   # Was 14
+    MAX_LINES_BILL = 24  # Was 18, increased to fill page
     
-    # If content uses 20 lines, filler becomes 0 (18-20 = -2 -> 0)
-    # If content uses 5 lines, filler becomes 13 (18-5 = 13)
     filler_gst = max(0, MAX_LINES_GST - total_visual_lines)
     filler_bill = max(0, MAX_LINES_BILL - total_visual_lines)
     
