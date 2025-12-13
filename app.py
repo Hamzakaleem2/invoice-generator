@@ -5,7 +5,7 @@ import json
 import base64
 import zipfile
 import re
-import os # Added for file path checking
+import os
 from datetime import datetime
 from jinja2 import Template
 from weasyprint import HTML, CSS
@@ -16,7 +16,7 @@ from mistralai import Mistral
 MISTRAL_API_KEY = "HvCqGQtSLzkxu2C3gmPyWm8Xg5wNktly" # <--- APNI KEY YAHAN PASTE KAREIN
 
 SERIAL_FILE = 'serial_tracker.json'
-NT_LOGO_FILE = "nt_logo.png" # <--- Is naam ki file project folder mein honi chahiye
+NT_LOGO_FILE = "nt_logo.png"
 
 # --- 2. DATABASE ---
 COMPANIES = {
@@ -166,7 +166,6 @@ def get_css(template_mode="standard"):
     
     .title-box { text-align: center; margin-bottom: 5px; }
     
-    /* FIXED: Ultra-thin single underline using 0.5pt border */
     .main-title { 
         font-family: "Times New Roman", serif; 
         font-weight: bold; 
@@ -250,7 +249,7 @@ TEMPLATE_GST = """
                 <td class="center v-top">{{ "{:,.0f}".format(item.val_excl) }}</td><td class="center v-top">18%</td><td class="center v-top">{{ "{:,.0f}".format(item.tax_val) }}</td><td class="center v-top">{{ "{:,.0f}".format(item.val_incl) }}</td>
             </tr>
             {% endfor %}
-            {% set target_rows = 12 %}
+            {% set target_rows = 15 %}
             {% set filler_count = target_rows - items|length %}
             {% if filler_count > 0 %}{% for i in range(filler_count) %}<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td></tr>{% endfor %}{% endif %}
         </tbody>
@@ -273,7 +272,7 @@ TEMPLATE_BILL = """
                         <div class="main-title" style="font-size: 26pt; border: none; text-decoration: none;">{{ comp.header_title }}</div>
                         <div style="font-size: 9pt;">{{ comp.address|safe }}</div>
                     </td>
-                    <td style="width: 30%; text-align: center; border: none; vertical-align: middle;">
+                    <td style="width: 30%; text-align: right; border: none; vertical-align: middle;">
                         {% if logo_b64 %}<img src="data:image/png;base64,{{ logo_b64 }}" class="nt-logo">{% endif %}
                     </td>
                 </tr>
@@ -304,7 +303,7 @@ TEMPLATE_BILL = """
             {% for item in items %}
             <tr><td class="center v-top">{{ loop.index }}</td><td class="center v-top">{{ "{:,.0f}".format(item.Qty) }} Pkts.</td><td class="v-top">{{ item.Description }}</td><td class="center v-top">{{ "{:,.0f}".format(item.Rate) }}</td><td class="center v-top bold">{{ "{:,.0f}".format(item.val_incl) }}</td></tr>
             {% endfor %}
-            {% set target_rows = 12 %}
+            {% set target_rows = 15 %}
             {% set filler_count = target_rows - items|length %}
             {% if filler_count > 0 %}{% for i in range(filler_count) %}<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr>{% endfor %}{% endif %}
         </tbody>
@@ -346,7 +345,7 @@ TEMPLATE_CHALLAN = """
             <td width="5%" style="border: none;"></td>
             <td width="30%" class="v-top" style="border: none;">
                 <div class="info-row"><span class="info-label">D.C. NO.</span><span class="info-val center bold">{{ serial }}</span></div>
-                {% if comp.template_type == 'simple' %}<div class="info-row"><span class="info-label">Date:</span><span class="info-val center bold">{{ date }}</span></div>{% endif %}
+                <div class="info-row"><span class="info-label">Date:</span><span class="info-val center bold">{{ date }}</span></div>
             </td>
         </tr>
     </table>
@@ -357,7 +356,7 @@ TEMPLATE_CHALLAN = """
             {% for item in items %}
             <tr><td class="center v-top">{{ loop.index }}</td><td class="center v-top">{{ "{:,.0f}".format(item.Qty) }} Pkts.</td><td class="v-top">{{ item.Description }}</td></tr>
             {% endfor %}
-            {% set target_rows = 12 %}
+            {% set target_rows = 15 %}
             {% set filler_count = target_rows - items|length %}
             {% if filler_count > 0 %}{% for i in range(filler_count) %}<tr><td>&nbsp;</td><td></td><td></td></tr>{% endfor %}{% endif %}
         </tbody>
