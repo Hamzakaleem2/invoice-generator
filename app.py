@@ -2,21 +2,22 @@ import streamlit as st
 import pandas as pd
 import io
 import json
-import os
 import base64
 import zipfile
 import re
-import cv2
-import numpy as np
 from datetime import datetime
 from jinja2 import Template
 from weasyprint import HTML, CSS
 from num2words import num2words
 from mistralai import Mistral
 
-# --- 1. CONFIGURATION ---
+# --- 1. SETTINGS & API KEY ---
+# Yahan apni key paste karein taake baar baar na dalni pade.
+MISTRAL_API_KEY = "HvCqGQtSLzkxu2C3gmPyWm8Xg5wNktly"  
+
 SERIAL_FILE = 'serial_tracker.json'
 
+# --- 2. DATABASE ---
 COMPANIES = {
     "M/S National Traders": {
         "template_type": "logo",
@@ -25,8 +26,8 @@ COMPANIES = {
         "ntn": "1417156-2",
         "strn": "01-01-9018-006-64",
         "header_title": "NATIONAL TRADERS",
-        "header_sub": "Total Scientific Solution",
-        "challan_sub": "DEALERS: DIAGNOSTIC REAGENT CHEMICALS, SURGICAL & SCIENTIFIC INSTRUMENTS...",
+        "header_sub": "", # Removed "Total Scientific Solution" as requested
+        "challan_sub": "DEALERS: DIAGNOSTIC REAGENT CHEMICALS, SURGICAL & SCIENTIFIC INSTRUMENTS, LABORATORY EQUIPMENTS, GLASSWARE, ELECTRO MEDICAL EQUIPMENTS, HOSPITAL EQUIPMENTS & GENERAL ORDER SUPPLIER",
         "footer_title": "NATIONAL TRADERS"
     },
     "M/S Nouman Traders": {
@@ -83,21 +84,25 @@ DEPARTMENTS = [
     "Animal Husbandry"
 ]
 
-# --- 2. AI ENGINE ---
-def analyze_with_mistral(image_file, api_key):
-    if not api_key: return None, "Please enter API Key."
+# --- 3. AI ENGINE (Auto-Trigger) ---
+def analyze_with_mistral(image_file):
+    # Use the hardcoded key
+    api_key = MISTRAL_API_KEY
+    if "YOUR_MISTRAL_API_KEY" in api_key:
+        return None, "Please set the MISTRAL_API_KEY in app.py code."
+    
     try:
         base64_image = base64.b64encode(image_file.read()).decode('utf-8')
         image_file.seek(0)
         client = Mistral(api_key=api_key)
         
+        # Note: We do NOT ask for Dept here anymore
         prompt = """
-        Extract from Purchase Order:
+        Extract from this Purchase Order image:
         {
             "po_no": "Order No string",
             "date": "DD.MM.YYYY",
-            "buyer": "Buyer Title",
-            "dept": "Department Name",
+            "buyer": "Buyer Title (e.g. Project Director or Director ONLY)",
             "items": [
                 {"Qty": number, "Description": "string", "Rate": number}
             ]
@@ -115,7 +120,7 @@ def analyze_with_mistral(image_file, api_key):
     except Exception as e:
         return None, str(e)
 
-# --- 3. HELPER FUNCTIONS ---
+# --- 4. HELPERS ---
 def get_last_serial(company, department):
     try:
         with open(SERIAL_FILE, 'r') as f: return json.load(f).get(f"{company}_{department}", 0)
@@ -139,14 +144,13 @@ def img_to_base64(img_bytes):
     return base64.b64encode(img_bytes.read()).decode()
 
 def clean_float(value):
-    """Fixes #VALUE error by removing commas"""
     if value is None: return 0.0
     try:
         if isinstance(value, str): return float(re.sub(r'[^\d.]', '', value))
         return float(value)
     except: return 0.0
 
-# --- 4. CSS GENERATOR ---
+# --- 5. CSS & TEMPLATES ---
 def get_css(template_mode="standard"):
     css = """
     body { font-family: Arial, sans-serif; font-size: 10pt; line-height: 1.2; }
@@ -160,7 +164,7 @@ def get_css(template_mode="standard"):
         font-family: "Times New Roman", serif; 
         font-weight: bold; 
         display: inline-block; 
-        text-decoration: underline;
+        text-decoration: underline; /* Single Underline Fixed */
     }
     .gst-title { font-size: 24pt; }
     .bill-title { font-size: 22pt; }
@@ -169,11 +173,13 @@ def get_css(template_mode="standard"):
     .grid-table th { background-color: white; color: black; font-weight: bold; text-align: center; border: 1px solid black; padding: 4px; font-size: 9pt; }
     .grid-table td { border: 1px solid black; padding: 4px; font-size: 9pt; word-wrap: break-word; }
     
+    /* GST Specifics */
     .gst-info-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; border: 3px solid black; }
     .gst-info-table td { border: none !important; padding: 5px; vertical-align: top; }
-    .gst-partition { border-right: 2px solid black !important; }
+    .gst-partition { border-right: 2px solid black !important; } /* Partition Line Added */
     .gst-info-label { font-weight: bold; width: 15%; }
     
+    /* Layouts */
     .nt-header { border: 2px solid #74c69d; border-radius: 10px; padding: 10px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
     .nt-logo { width: 100px; height: auto; }
     .simple-header { text-align: center; margin-bottom: 20px; }
@@ -189,15 +195,14 @@ def get_css(template_mode="standard"):
     .black-header th { background-color: black !important; color: white !important; }
     """
     
-    # DYNAMIC MARGINS
     if template_mode == "letterhead":
+        # 2.5 inch top margin for Letterheads
         css += "@page { size: A4; margin-top: 2.5in; margin-bottom: 1.5in; margin-left: 1cm; margin-right: 1cm; }"
     else:
+        # Standard Centered
         css += "@page { size: A4; margin: 0.5cm 1cm; }"
         
     return css
-
-# --- 5. TEMPLATES (With Auto-Rows Logic) ---
 
 TEMPLATE_GST = """
 <html><head><style>{{ css }}</style></head><body>
@@ -234,36 +239,21 @@ TEMPLATE_GST = """
     
     <table class="grid-table">
         <thead>
-            <tr>
-                <th width="8%">Quantity</th>
-                <th width="48%">Description of Goods</th>
-                <th width="12%">Value<br>Excl.S.Tax</th>
-                <th width="8%">Rate of<br>Sales Tax</th>
-                <th width="10%">Total Sales Tax<br>Payable</th>
-                <th width="14%">Value Including<br>Sales.Tax</th>
-            </tr>
+            <tr><th width="8%">Quantity</th><th width="48%">Description of Goods</th><th width="12%">Value<br>Excl.S.Tax</th><th width="8%">Rate of<br>Sales Tax</th><th width="10%">Total Sales Tax<br>Payable</th><th width="14%">Value Including<br>Sales.Tax</th></tr>
         </thead>
         <tbody>
             {% for item in items %}
             <tr>
                 <td class="center v-top">{{ "{:,.0f}".format(item.Qty) }} Pkts.</td>
                 <td class="v-top">{{ item.Description }}</td>
-                <td class="center v-top">{{ "{:,.0f}".format(item.val_excl) }}</td>
-                <td class="center v-top">18%</td>
-                <td class="center v-top">{{ "{:,.0f}".format(item.tax_val) }}</td>
-                <td class="center v-top">{{ "{:,.0f}".format(item.val_incl) }}</td>
+                <td class="center v-top">{{ "{:,.0f}".format(item.val_excl) }}</td><td class="center v-top">18%</td><td class="center v-top">{{ "{:,.0f}".format(item.tax_val) }}</td><td class="center v-top">{{ "{:,.0f}".format(item.val_incl) }}</td>
             </tr>
             {% endfor %}
             {% set filler_count = 20 - items|length %}
-            {% if filler_count > 0 %}
-                {% for i in range(filler_count) %}<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td></tr>{% endfor %}
-            {% endif %}
+            {% if filler_count > 0 %}{% for i in range(filler_count) %}<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td></tr>{% endfor %}{% endif %}
         </tbody>
         <tfoot>
-            <tr class="total-row">
-                <td colspan="2" class="right">TOTAL</td>
-                <td class="center">{{ "{:,.0f}".format(totals.excl) }}</td><td class="center">18%</td><td class="center">{{ "{:,.0f}".format(totals.tax) }}</td><td class="center">{{ "{:,.0f}".format(totals.incl) }}</td>
-            </tr>
+            <tr class="total-row"><td colspan="2" class="right">TOTAL</td><td class="center">{{ "{:,.0f}".format(totals.excl) }}</td><td class="center">18%</td><td class="center">{{ "{:,.0f}".format(totals.tax) }}</td><td class="center">{{ "{:,.0f}".format(totals.incl) }}</td></tr>
         </tfoot>
     </table>
     <br><br><br><div style="width: 30%; border-top: 1px solid black; margin-left: auto; text-align: center;">SIGNATURE</div>
@@ -275,8 +265,8 @@ TEMPLATE_BILL = """
     {% if comp.template_type == 'logo' %}
         <div class="title-box"><div class="main-title bill-title">BILL/CASH MEMO</div></div>
         <div class="nt-header">
-            <div style="width: 70%;"><div class="main-title" style="font-size: 26pt; border: none;">{{ comp.header_title }}</div><div style="font-size: 9pt;">{{ comp.address|safe }}</div></div>
-            <div class="center" style="width: 30%;">{% if logo_b64 %}<img src="data:image/png;base64,{{ logo_b64 }}" class="nt-logo">{% endif %}<div style="font-size: 7pt; font-weight: bold; margin-top: 2px;">{{ comp.header_sub }}</div></div>
+            <div class="center" style="width: 30%;">{% if logo_b64 %}<img src="data:image/png;base64,{{ logo_b64 }}" class="nt-logo">{% endif %}</div>
+            <div style="width: 70%; text-align: right;"><div class="main-title" style="font-size: 26pt; border: none;">{{ comp.header_title }}</div><div style="font-size: 9pt;">{{ comp.address|safe }}</div></div>
         </div>
     {% else %}
         <div class="simple-header"><div class="main-title bill-title">BILL</div></div>
@@ -303,14 +293,9 @@ TEMPLATE_BILL = """
             {% for item in items %}
             <tr><td class="center v-top">{{ loop.index }}</td><td class="center v-top">{{ "{:,.0f}".format(item.Qty) }} Pkts.</td><td class="v-top">{{ item.Description }}</td><td class="center v-top">{{ "{:,.0f}".format(item.Rate) }}</td><td class="center v-top bold">{{ "{:,.0f}".format(item.val_incl) }}</td></tr>
             {% endfor %}
-            {% set filler_count = 18 - items|length %}
-            {% if filler_count > 0 %}
-                {% for i in range(filler_count) %}<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr>{% endfor %}
-            {% endif %}
+            {% set filler_count = 18 - items|length %}{% if filler_count > 0 %}{% for i in range(filler_count) %}<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr>{% endfor %}{% endif %}
         </tbody>
-        <tfoot>
-            <tr class="total-row"><td colspan="4" class="right" style="{% if comp.template_type == 'logo' %}background:black; color:white;{% endif %}">TOTAL</td><td class="center">{{ "{:,.0f}".format(totals.incl) }}</td></tr>
-        </tfoot>
+        <tfoot><tr class="total-row"><td colspan="4" class="right" style="{% if comp.template_type == 'logo' %}background:black; color:white;{% endif %}">TOTAL</td><td class="center">{{ "{:,.0f}".format(totals.incl) }}</td></tr></tfoot>
     </table>
     <div style="margin-top: 15px;"><span class="bold">Rupees = </span><span class="italic">{{ amount_words }}</span></div>
     <div class="footer-row"><div></div><div class="bold right" style="margin-top: 30px;">For, {{ comp.footer_title }}</div></div>
@@ -321,8 +306,8 @@ TEMPLATE_CHALLAN = """
 <html><head><style>{{ css }}</style></head><body>
     {% if comp.template_type == 'logo' %}
         <div class="nt-header" style="border: none;">
-            <div style="width: 70%;"><div class="main-title" style="font-size: 26pt; border: none;">{{ comp.header_title }}</div><div style="font-size: 8pt; font-weight: bold;">{{ comp.challan_sub }}</div></div>
             <div class="center" style="width: 30%;">{% if logo_b64 %}<img src="data:image/png;base64,{{ logo_b64 }}" class="nt-logo">{% endif %}</div>
+            <div style="width: 70%; text-align: right;"><div class="main-title" style="font-size: 26pt; border: none;">{{ comp.header_title }}</div><div style="font-size: 8pt; font-weight: bold;">{{ comp.challan_sub }}</div></div>
         </div>
         <div class="title-box" style="margin-bottom: 10px;"><div class="main-title" style="font-size: 14pt;">Delivery Challan</div></div>
     {% else %}
@@ -350,10 +335,7 @@ TEMPLATE_CHALLAN = """
             {% for item in items %}
             <tr><td class="center v-top">{{ loop.index }}</td><td class="center v-top">{{ "{:,.0f}".format(item.Qty) }} Pkts.</td><td class="v-top">{{ item.Description }}</td></tr>
             {% endfor %}
-            {% set filler_count = 18 - items|length %}
-            {% if filler_count > 0 %}
-                {% for i in range(filler_count) %}<tr><td>&nbsp;</td><td></td><td></td></tr>{% endfor %}
-            {% endif %}
+            {% set filler_count = 18 - items|length %}{% if filler_count > 0 %}{% for i in range(filler_count) %}<tr><td>&nbsp;</td><td></td><td></td></tr>{% endfor %}{% endif %}
         </tbody>
     </table>
     <div class="center italic bold" style="margin-top: 20px; border: 1px solid black; padding: 5px;">Received above mentioned Goods checked and found to be good condition</div>
@@ -362,7 +344,7 @@ TEMPLATE_CHALLAN = """
 </body></html>
 """
 
-# --- 6. GENERATION LOGIC ---
+# --- 6. GENERATION ---
 def generate_docs(comp_key, dept_name, buyer_name, items_data, po_no, po_date, logo_b64, manual_serial):
     if manual_serial and manual_serial.strip():
         final_serial = manual_serial.zfill(4)
@@ -376,7 +358,6 @@ def generate_docs(comp_key, dept_name, buyer_name, items_data, po_no, po_date, l
     t_excl = 0; t_tax = 0; t_incl = 0
     
     for item in items_data:
-        # Clean Data Logic (Fixes #VALUE!)
         qty = clean_float(item.get('Qty', 0))
         rate = clean_float(item.get('Rate', 0))
         desc = item.get('Description', '')
@@ -386,18 +367,14 @@ def generate_docs(comp_key, dept_name, buyer_name, items_data, po_no, po_date, l
         tax = val_incl - val_excl
         t_excl += val_excl; t_tax += tax; t_incl += val_incl
         
-        processed_items.append({
-            'Qty': qty, 'Description': desc, 'Rate': rate,
-            'val_excl': val_excl, 'tax_val': tax, 'val_incl': val_incl
-        })
+        processed_items.append({'Qty': qty, 'Description': desc, 'Rate': rate, 'val_excl': val_excl, 'tax_val': tax, 'val_incl': val_incl})
 
     totals = {'excl': t_excl, 'tax': t_tax, 'incl': t_incl}
     try: amount_words = f"Rupees {num2words(int(round(t_incl))).title().replace('-', ' ')} Only"
     except: amount_words = "Rupees .............................................."
     
-    # Styles: GST Always Standard, Docs switch based on Company
     is_simple = (comp_data['template_type'] == 'simple')
-    gst_css = get_css("standard") 
+    gst_css = get_css("standard")
     doc_css = get_css("letterhead" if is_simple else "standard")
     
     context = {'comp': comp_data, 'dept': dept_name, 'buyer_name': buyer_name, 'items': processed_items, 'po_no': po_no, 'date': po_date, 'serial': final_serial, 'totals': totals, 'amount_words': amount_words, 'logo_b64': logo_b64}
@@ -416,54 +393,57 @@ if 'gen_serial' not in st.session_state: st.session_state.gen_serial = ""
 
 st.title("Auto-Document Generator")
 
-with st.sidebar:
-    mistral_key = st.text_input("Mistral API Key", type="password")
-
 col1, col2 = st.columns([1, 2])
 with col1:
+    st.subheader("1. Setup")
     comp_key = st.selectbox("Company", list(COMPANIES.keys()))
+    dept_key = st.selectbox("Department", DEPARTMENTS) # Dropdown Added
     manual_serial = st.text_input("Manual Serial No.", placeholder="Override Auto-Serial")
     logo = st.file_uploader("Upload Logo", type=['png', 'jpg'])
 
 with col2:
-    uploaded_img = st.file_uploader("Scan Image", type=['png', 'jpg', 'jpeg'])
+    st.subheader("2. Order")
+    uploaded_img = st.file_uploader("Scan Image (Auto-AI)", type=['png', 'jpg', 'jpeg'])
     
+    # State Init
     extracted_po = ""
     extracted_date = datetime.now().strftime("%d.%m.%Y")
-    extracted_dept = "CVDL SINDH TANDO JAM"
     extracted_buyer = "The Project Director"
     current_items = [{"Qty": 0, "Description": "", "Rate": 0}]
 
-    if uploaded_img and st.button("Analyze with AI"):
-        with st.spinner("AI Reading..."):
-            ai_data, error = analyze_with_mistral(uploaded_img, mistral_key)
-            if error: st.error(error)
-            elif ai_data:
-                st.success("Extracted!")
-                extracted_po = ai_data.get('po_no', "")
-                extracted_date = ai_data.get('date', "") or extracted_date
-                extracted_dept = ai_data.get('dept', "") or extracted_dept
-                extracted_buyer = ai_data.get('buyer', "") or extracted_buyer
-                if ai_data.get('items'): current_items = ai_data['items']
-                st.session_state.editor_df = pd.DataFrame(current_items)
-                st.session_state.extracted_data = {'po': extracted_po, 'date': extracted_date, 'dept': extracted_dept, 'buyer': extracted_buyer}
+    # AUTO TRIGGER AI
+    if uploaded_img:
+        if 'last_img' not in st.session_state or st.session_state.last_img != uploaded_img.name:
+            with st.spinner("Processing Image..."):
+                ai_data, error = analyze_with_mistral(uploaded_img)
+                if error: 
+                    st.warning(f"AI Warning: {error}")
+                elif ai_data:
+                    st.success("Extracted!")
+                    extracted_po = ai_data.get('po_no', "")
+                    extracted_date = ai_data.get('date', "") or extracted_date
+                    extracted_buyer = ai_data.get('buyer', "") or extracted_buyer
+                    if ai_data.get('items'): current_items = ai_data['items']
+                    
+                    st.session_state.editor_df = pd.DataFrame(current_items)
+                    st.session_state.extracted_data = {'po': extracted_po, 'date': extracted_date, 'buyer': extracted_buyer}
+                    st.session_state.last_img = uploaded_img.name
 
     defaults = st.session_state.get('extracted_data', {})
     po_no = st.text_input("Order No", value=defaults.get('po', extracted_po))
     col_a, col_b = st.columns(2)
     po_dt = col_a.text_input("Date", value=defaults.get('date', extracted_date))
     buyer_name = col_b.text_input("Messers", value=defaults.get('buyer', extracted_buyer))
-    dept_key = st.text_input("Department/Address", value=defaults.get('dept', extracted_dept))
     
     if 'editor_df' not in st.session_state: st.session_state.editor_df = pd.DataFrame(current_items)
     df_items = st.data_editor(st.session_state.editor_df, num_rows="dynamic", use_container_width=True)
     
     st.write("---")
     if st.button("Generate Documents", type="primary"):
-        logo_b64 = img_to_base64(logo) if logo else None # Fixed Variable Scope
+        logo_b64 = img_to_base64(logo) if logo else None
         
         if COMPANIES[comp_key]['template_type'] == 'logo' and not logo:
-            st.error("Logo required for National Traders!")
+            st.error("Error: National Traders requires a Logo!")
         else:
             try: items_list = df_items.to_dict('records')
             except: items_list = []
