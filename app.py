@@ -17,7 +17,7 @@ from mistralai import Mistral
 MISTRAL_API_KEY = "HvCqGQtSLzkxu2C3gmPyWm8Xg5wNktly" 
 
 SERIAL_FILE = 'serial_tracker.json'
-# Name your logo file EXACTLY this and upload it to GitHub alongside app.py
+# Name your logo file EXACTLY this and upload it to GitHub/Folder
 PERMANENT_LOGO_FILE = "nt_logo.png"
 
 # --- 2. COMPANY DATABASE ---
@@ -89,18 +89,11 @@ DEPARTMENTS = [
 
 # --- 3. LOGIC HELPERS ---
 def clean_buyer_name(text):
-    """Aggressive cleaner: If it sees a Title, it deletes the Name."""
     if not text: return "The Project Director"
     upper_text = text.upper()
-    
-    if "PROJECT DIRECTOR" in upper_text:
-        return "The Project Director"
-    if "DIRECTOR" in upper_text and "VETERINARY" in upper_text:
-        return "Director of Veterinary Research and Diagnosis"
-    if "DIRECTOR" in upper_text:
-        return "The Director"
-    
-    # Fallback
+    if "PROJECT DIRECTOR" in upper_text: return "The Project Director"
+    if "DIRECTOR" in upper_text and "VETERINARY" in upper_text: return "Director of Veterinary Research and Diagnosis"
+    if "DIRECTOR" in upper_text: return "The Director"
     return "The Project Director"
 
 def get_last_serial(company, department):
@@ -131,6 +124,13 @@ def clean_float(value):
         if isinstance(value, str): return float(re.sub(r'[^\d.]', '', value))
         return float(value)
     except: return 0.0
+
+def get_estimated_lines(description, width_chars=50):
+    """Calculates visual lines based on text length to adjust fillers."""
+    if not description: return 1
+    newlines = description.count('\n')
+    wraps = len(str(description)) // width_chars
+    return 1 + newlines + wraps
 
 # --- 4. AI ENGINE ---
 def analyze_with_mistral(image_file):
@@ -168,7 +168,6 @@ def analyze_with_mistral(image_file):
 
 # --- 5. VISUAL STYLING (CSS) ---
 def get_css(template_mode="standard"):
-    # Using 0.5pt Border-Bottom instead of underline to prevent double-line look
     css = """
     @page { size: A4; margin: 0.25in 0.5in; }
     body { font-family: Arial, sans-serif; font-size: 10pt; line-height: 1.1; }
@@ -179,7 +178,6 @@ def get_css(template_mode="standard"):
     
     .title-box { text-align: center; margin-bottom: 5px; }
     
-    /* THE FIX: No text-decoration, just a thin border */
     .main-title { 
         font-family: "Times New Roman", serif; 
         font-weight: bold; 
@@ -200,7 +198,7 @@ def get_css(template_mode="standard"):
     .gst-info-label { font-weight: bold; width: 15%; }
     
     .nt-header { border: 2px solid #74c69d; border-radius: 10px; padding: 5px; margin-bottom: 5px; }
-    /* UPDATED LOGO CSS FOR BILL */
+    /* FIXED LOGO ALIGNMENT FOR BILL */
     .nt-logo { width: 130px; height: auto; display: block; float: right; }
     
     .simple-header { text-align: center; margin-bottom: 10px; }
@@ -379,7 +377,7 @@ TEMPLATE_CHALLAN = """
 </body></html>
 """
 
-# --- 7. GENERATION ---
+# --- 7. GENERATION (SMART ROW LOGIC) ---
 def generate_docs(comp_key, dept_name, buyer_name, items_data, po_no, po_date, logo_b64, manual_serial):
     if manual_serial and manual_serial.strip():
         final_serial = manual_serial.zfill(4)
@@ -392,19 +390,17 @@ def generate_docs(comp_key, dept_name, buyer_name, items_data, po_no, po_date, l
     processed_items = []
     t_excl = 0; t_tax = 0; t_incl = 0
     
-    # --- LOGIC: Smart Row Calculation ---
-    # Calculates how many "lines" each item takes to better estimate fillers
-    lines_used = 0
+    # Track visual height
+    total_visual_lines = 0
     
     for item in items_data:
         qty = clean_float(item.get('Qty', 0))
         rate = clean_float(item.get('Rate', 0))
         desc = item.get('Description', '')
         
-        # Smart Line Counting: Assumes approx 45 chars per line wraps in the Description column
-        desc_len = len(str(desc))
-        estimated_lines = 1 + (desc_len // 45)
-        lines_used += estimated_lines
+        # Calculate visual lines (wrapping)
+        lines_this_item = get_estimated_lines(desc)
+        total_visual_lines += lines_this_item
         
         val_incl = qty * rate
         val_excl = val_incl / 1.18
@@ -421,12 +417,15 @@ def generate_docs(comp_key, dept_name, buyer_name, items_data, po_no, po_date, l
     gst_css = get_css("standard") 
     doc_css = get_css("letterhead" if is_simple else "standard")
     
-    # Calculate Fillers based on Lines Used, not just Item Count
-    target_lines_gst = 12
-    target_lines_doc = 15
+    # --- AUTO-DECREMENT/INCREMENT LOGIC ---
+    # Safe limits for A4 page
+    MAX_LINES_GST = 14
+    MAX_LINES_BILL = 18
     
-    filler_gst = max(0, target_lines_gst - lines_used)
-    filler_doc = max(0, target_lines_doc - lines_used)
+    # If content uses 20 lines, filler becomes 0 (18-20 = -2 -> 0)
+    # If content uses 5 lines, filler becomes 13 (18-5 = 13)
+    filler_gst = max(0, MAX_LINES_GST - total_visual_lines)
+    filler_bill = max(0, MAX_LINES_BILL - total_visual_lines)
     
     context = {
         'comp': comp_data, 'dept': dept_name, 'buyer_name': buyer_name, 
@@ -437,12 +436,10 @@ def generate_docs(comp_key, dept_name, buyer_name, items_data, po_no, po_date, l
     
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, 'a', zipfile.ZIP_DEFLATED, False) as zf:
-        # GST gets specific filler count
         c_gst = context.copy(); c_gst['filler_count'] = filler_gst
         zf.writestr(f"1_GST_{final_serial}.pdf", HTML(string=Template(TEMPLATE_GST).render(**c_gst, css=gst_css)).write_pdf())
         
-        # Bill/Challan get slightly more rows usually
-        c_doc = context.copy(); c_doc['filler_count'] = filler_doc
+        c_doc = context.copy(); c_doc['filler_count'] = filler_bill
         zf.writestr(f"2_Bill_{final_serial}.pdf", HTML(string=Template(TEMPLATE_BILL).render(**c_doc, css=doc_css)).write_pdf())
         zf.writestr(f"3_Challan_{final_serial}.pdf", HTML(string=Template(TEMPLATE_CHALLAN).render(**c_doc, css=doc_css)).write_pdf())
         
@@ -499,12 +496,10 @@ with col2:
     
     st.write("---")
     if st.button("Generate Documents", type="primary"):
-        # --- PERMANENT LOGO LOGIC ---
         logo_b64 = None
         if logo:
             logo_b64 = img_to_base64(logo)
         elif comp_key == "M/S National Traders":
-            # Check for local file if no user upload
             if os.path.exists(PERMANENT_LOGO_FILE):
                 try:
                     with open(PERMANENT_LOGO_FILE, "rb") as f:
@@ -514,7 +509,6 @@ with col2:
             else:
                  st.error(f"Permanent logo not found: Make sure '{PERMANENT_LOGO_FILE}' is in the project folder.")
         
-        # Validation
         if COMPANIES[comp_key]['template_type'] == 'logo' and not logo_b64:
             st.error(f"Error: Logo required! Upload one or ensure '{PERMANENT_LOGO_FILE}' exists in the folder.")
         else:
