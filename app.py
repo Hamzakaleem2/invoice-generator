@@ -144,12 +144,14 @@ def analyze_with_mistral(image_file):
         client = Mistral(api_key=api_key)
         
         prompt = """
-        Extract from image:
+        Extract from this Purchase Order image:
         {
-            "po_no": "Order No",
+            "po_no": "Order No string",
             "date": "DD.MM.YYYY",
-            "buyer": "Designation Only (e.g. Project Director)",
-            "items": [{"Qty": number, "Description": "text", "Rate": number}]
+            "buyer": "Identify the Designation (e.g. Project Director). IGNORE specific names like Dr. Shah Murad.",
+            "items": [
+                {"Qty": number, "Description": "string", "Rate": number}
+            ]
         }
         Return ONLY JSON.
         """
@@ -479,13 +481,17 @@ with col2:
         if logo:
             logo_b64 = img_to_base64(logo)
         elif comp_key == "M/S National Traders":
-            # Check LOCAL file
+            # Check for local file if no user upload
             if os.path.exists(PERMANENT_LOGO_FILE):
                 try:
                     with open(PERMANENT_LOGO_FILE, "rb") as f:
                         logo_b64 = base64.b64encode(f.read()).decode()
-                except: pass
+                except Exception as e:
+                     st.error(f"Error reading local logo file: {e}")
+            else:
+                 st.error(f"Permanent logo not found: Make sure '{PERMANENT_LOGO_FILE}' is in the project folder.")
         
+        # Validation
         if COMPANIES[comp_key]['template_type'] == 'logo' and not logo_b64:
             st.error(f"Error: Logo required! Upload one or ensure '{PERMANENT_LOGO_FILE}' exists in the folder.")
         else:
