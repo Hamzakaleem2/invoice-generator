@@ -200,7 +200,9 @@ def get_css(template_mode="standard"):
     .gst-info-label { font-weight: bold; width: 15%; }
     
     .nt-header { border: 2px solid #74c69d; border-radius: 10px; padding: 5px; margin-bottom: 5px; }
-    .nt-logo { width: 130px; height: auto; display: block; }
+    /* UPDATED LOGO CSS FOR BILL */
+    .nt-logo { width: 130px; height: auto; display: block; float: right; }
+    
     .simple-header { text-align: center; margin-bottom: 10px; }
     
     .info-row { margin-bottom: 2px; display: flex; }
@@ -265,8 +267,6 @@ TEMPLATE_GST = """
                 <td class="center v-top">{{ "{:,.0f}".format(item.val_excl) }}</td><td class="center v-top">18%</td><td class="center v-top">{{ "{:,.0f}".format(item.tax_val) }}</td><td class="center v-top">{{ "{:,.0f}".format(item.val_incl) }}</td>
             </tr>
             {% endfor %}
-            {% set target_rows = 12 %}
-            {% set filler_count = target_rows - items|length %}
             {% if filler_count > 0 %}{% for i in range(filler_count) %}<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td></tr>{% endfor %}{% endif %}
         </tbody>
         <tfoot>
@@ -284,12 +284,12 @@ TEMPLATE_BILL = """
         <div class="nt-header">
             <table style="width: 100%; border: none;">
                 <tr>
-                    <td style="width: 70%; text-align: left; border: none; vertical-align: middle;">
+                    <td style="width: 65%; text-align: left; border: none; vertical-align: middle;">
                         <div class="main-title" style="font-size: 26pt; border: none; text-decoration: none;">{{ comp.header_title }}</div>
                         <div style="font-size: 9pt;">{{ comp.address|safe }}</div>
                     </td>
-                    <td style="width: 30%; text-align: right; border: none; vertical-align: middle;">
-                        {% if logo_b64 %}<img src="data:image/png;base64,{{ logo_b64 }}" class="nt-logo">{% endif %}
+                    <td style="width: 35%; text-align: right; border: none; vertical-align: middle;">
+                        {% if logo_b64 %}<img src="data:image/png;base64,{{ logo_b64 }}" class="nt-logo" style="float: right;">{% endif %}
                     </td>
                 </tr>
             </table>
@@ -319,8 +319,6 @@ TEMPLATE_BILL = """
             {% for item in items %}
             <tr><td class="center v-top">{{ loop.index }}</td><td class="center v-top">{{ "{:,.0f}".format(item.Qty) }} Pkts.</td><td class="v-top">{{ item.Description }}</td><td class="center v-top">{{ "{:,.0f}".format(item.Rate) }}</td><td class="center v-top bold">{{ "{:,.0f}".format(item.val_incl) }}</td></tr>
             {% endfor %}
-            {% set target_rows = 15 %}
-            {% set filler_count = target_rows - items|length %}
             {% if filler_count > 0 %}{% for i in range(filler_count) %}<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr>{% endfor %}{% endif %}
         </tbody>
         <tfoot><tr class="total-row"><td colspan="4" class="right" style="{% if comp.template_type == 'logo' %}background:black; color:white;{% endif %}">TOTAL</td><td class="center">{{ "{:,.0f}".format(totals.incl) }}</td></tr></tfoot>
@@ -361,7 +359,7 @@ TEMPLATE_CHALLAN = """
             <td width="5%" style="border: none;"></td>
             <td width="30%" class="v-top" style="border: none;">
                 <div class="info-row"><span class="info-label">D.C. NO.</span><span class="info-val center bold">{{ serial }}</span></div>
-                <div class="info-row"><span class="info-label">Date:</span><span class="info-val center bold">{{ date }}</span></div>
+                <div class="info-row" style="margin-top: 2px;"><span class="info-label">Date:</span><span class="info-val center bold">{{ date }}</span></div>
             </td>
         </tr>
     </table>
@@ -372,8 +370,6 @@ TEMPLATE_CHALLAN = """
             {% for item in items %}
             <tr><td class="center v-top">{{ loop.index }}</td><td class="center v-top">{{ "{:,.0f}".format(item.Qty) }} Pkts.</td><td class="v-top">{{ item.Description }}</td></tr>
             {% endfor %}
-            {% set target_rows = 15 %}
-            {% set filler_count = target_rows - items|length %}
             {% if filler_count > 0 %}{% for i in range(filler_count) %}<tr><td>&nbsp;</td><td></td><td></td></tr>{% endfor %}{% endif %}
         </tbody>
     </table>
@@ -396,10 +392,19 @@ def generate_docs(comp_key, dept_name, buyer_name, items_data, po_no, po_date, l
     processed_items = []
     t_excl = 0; t_tax = 0; t_incl = 0
     
+    # --- LOGIC: Smart Row Calculation ---
+    # Calculates how many "lines" each item takes to better estimate fillers
+    lines_used = 0
+    
     for item in items_data:
         qty = clean_float(item.get('Qty', 0))
         rate = clean_float(item.get('Rate', 0))
         desc = item.get('Description', '')
+        
+        # Smart Line Counting: Assumes approx 45 chars per line wraps in the Description column
+        desc_len = len(str(desc))
+        estimated_lines = 1 + (desc_len // 45)
+        lines_used += estimated_lines
         
         val_incl = qty * rate
         val_excl = val_incl / 1.18
@@ -416,13 +421,31 @@ def generate_docs(comp_key, dept_name, buyer_name, items_data, po_no, po_date, l
     gst_css = get_css("standard") 
     doc_css = get_css("letterhead" if is_simple else "standard")
     
-    context = {'comp': comp_data, 'dept': dept_name, 'buyer_name': buyer_name, 'items': processed_items, 'po_no': po_no, 'date': po_date, 'serial': final_serial, 'totals': totals, 'amount_words': amount_words, 'logo_b64': logo_b64}
+    # Calculate Fillers based on Lines Used, not just Item Count
+    target_lines_gst = 12
+    target_lines_doc = 15
+    
+    filler_gst = max(0, target_lines_gst - lines_used)
+    filler_doc = max(0, target_lines_doc - lines_used)
+    
+    context = {
+        'comp': comp_data, 'dept': dept_name, 'buyer_name': buyer_name, 
+        'items': processed_items, 'po_no': po_no, 'date': po_date, 
+        'serial': final_serial, 'totals': totals, 'amount_words': amount_words, 
+        'logo_b64': logo_b64
+    }
     
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, 'a', zipfile.ZIP_DEFLATED, False) as zf:
-        zf.writestr(f"1_GST_{final_serial}.pdf", HTML(string=Template(TEMPLATE_GST).render(**context, css=gst_css)).write_pdf())
-        zf.writestr(f"2_Bill_{final_serial}.pdf", HTML(string=Template(TEMPLATE_BILL).render(**context, css=doc_css)).write_pdf())
-        zf.writestr(f"3_Challan_{final_serial}.pdf", HTML(string=Template(TEMPLATE_CHALLAN).render(**context, css=doc_css)).write_pdf())
+        # GST gets specific filler count
+        c_gst = context.copy(); c_gst['filler_count'] = filler_gst
+        zf.writestr(f"1_GST_{final_serial}.pdf", HTML(string=Template(TEMPLATE_GST).render(**c_gst, css=gst_css)).write_pdf())
+        
+        # Bill/Challan get slightly more rows usually
+        c_doc = context.copy(); c_doc['filler_count'] = filler_doc
+        zf.writestr(f"2_Bill_{final_serial}.pdf", HTML(string=Template(TEMPLATE_BILL).render(**c_doc, css=doc_css)).write_pdf())
+        zf.writestr(f"3_Challan_{final_serial}.pdf", HTML(string=Template(TEMPLATE_CHALLAN).render(**c_doc, css=doc_css)).write_pdf())
+        
     return zip_buffer.getvalue(), final_serial
 
 # --- 8. UI ---
@@ -487,7 +510,7 @@ with col2:
                     with open(PERMANENT_LOGO_FILE, "rb") as f:
                         logo_b64 = base64.b64encode(f.read()).decode()
                 except Exception as e:
-                     st.error(f"Error reading local logo file: {e}")
+                      st.error(f"Error reading local logo file: {e}")
             else:
                  st.error(f"Permanent logo not found: Make sure '{PERMANENT_LOGO_FILE}' is in the project folder.")
         
