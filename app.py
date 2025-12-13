@@ -162,13 +162,15 @@ def get_css(template_mode="standard"):
     .v-top { vertical-align: top; }
     
     .title-box { text-align: center; margin-bottom: 10px; }
-    /* FIXED: Single Underline */
+    
+    /* FIXED: SINGLE UNDERLINE using border-bottom */
     .main-title { 
         font-family: "Times New Roman", serif; 
         font-weight: bold; 
         display: inline-block; 
-        text-decoration: underline; 
-        border-bottom: none !important;
+        text-decoration: none !important; /* Remove default underline */
+        border-bottom: 1px solid black;   /* Add clean single border */
+        padding-bottom: 3px;
     }
     .gst-title { font-size: 24pt; }
     .bill-title { font-size: 22pt; }
@@ -182,7 +184,7 @@ def get_css(template_mode="standard"):
     .gst-info-label { font-weight: bold; width: 15%; }
     
     .nt-header { border: 2px solid #74c69d; border-radius: 10px; padding: 10px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-    .nt-logo { width: 120px; height: auto; } /* Logo made bigger */
+    .nt-logo { width: 130px; height: auto; } /* Increased Logo Size slightly */
     .simple-header { text-align: center; margin-bottom: 20px; }
     
     .info-row { margin-bottom: 5px; display: flex; }
@@ -208,7 +210,7 @@ TEMPLATE_GST = """
     <div class="center" style="font-size: 10pt; margin-bottom: 15px;">(Under Section 23 of S.Tax Act 1990)</div>
     
     <table style="width: 100%; margin-bottom: 5px;">
-        <tr><td class="bold" style="width: 20%; text-decoration: underline; display:inline-block;">ORIGINAL</td><td style="width: 50%;"></td><td class="right bold" style="width: 15%;">Serial No.</td><td class="center" style="border: 1px solid black; width: 15%;">{{ serial }}</td></tr>
+        <tr><td class="bold" style="width: 20%; text-decoration: none; border-bottom: 1px solid black; display:inline-block;">ORIGINAL</td><td style="width: 50%;"></td><td class="right bold" style="width: 15%;">Serial No.</td><td class="center" style="border: 1px solid black; width: 15%;">{{ serial }}</td></tr>
         <tr><td>Time of Supply:</td><td></td><td class="right bold">Date:</td><td class="center" style="border: 1px solid black;">{{ date }}</td></tr>
     </table>
     
@@ -247,7 +249,7 @@ TEMPLATE_GST = """
                 <td class="center v-top">{{ "{:,.0f}".format(item.val_excl) }}</td><td class="center v-top">18%</td><td class="center v-top">{{ "{:,.0f}".format(item.tax_val) }}</td><td class="center v-top">{{ "{:,.0f}".format(item.val_incl) }}</td>
             </tr>
             {% endfor %}
-            {% set filler_count = 14 - items|length %}
+            {% set filler_count = 15 - items|length %}
             {% if filler_count > 0 %}{% for i in range(filler_count) %}<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td></tr>{% endfor %}{% endif %}
         </tbody>
         <tfoot>
@@ -294,7 +296,7 @@ TEMPLATE_BILL = """
             {% for item in items %}
             <tr><td class="center v-top">{{ loop.index }}</td><td class="center v-top">{{ "{:,.0f}".format(item.Qty) }} Pkts.</td><td class="v-top">{{ item.Description }}</td><td class="center v-top">{{ "{:,.0f}".format(item.Rate) }}</td><td class="center v-top bold">{{ "{:,.0f}".format(item.val_incl) }}</td></tr>
             {% endfor %}
-            {% set filler_count = 14 - items|length %}{% if filler_count > 0 %}{% for i in range(filler_count) %}<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr>{% endfor %}{% endif %}
+            {% set filler_count = 12 - items|length %}{% if filler_count > 0 %}{% for i in range(filler_count) %}<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr>{% endfor %}{% endif %}
         </tbody>
         <tfoot><tr class="total-row"><td colspan="4" class="right" style="{% if comp.template_type == 'logo' %}background:black; color:white;{% endif %}">TOTAL</td><td class="center">{{ "{:,.0f}".format(totals.incl) }}</td></tr></tfoot>
     </table>
@@ -307,8 +309,8 @@ TEMPLATE_CHALLAN = """
 <html><head><style>{{ css }}</style></head><body>
     {% if comp.template_type == 'logo' %}
         <div class="nt-header" style="border: none;">
-            <div style="width: 25%;">{% if logo_b64 %}<img src="data:image/png;base64,{{ logo_b64 }}" class="nt-logo">{% endif %}</div>
-            <div style="width: 75%; text-align: center;">
+            <div class="center" style="width: 30%;">{% if logo_b64 %}<img src="data:image/png;base64,{{ logo_b64 }}" class="nt-logo">{% endif %}</div>
+            <div style="width: 70%; text-align: center;">
                 <div class="main-title" style="font-size: 26pt; border: none; text-decoration: none;">{{ comp.header_title }}</div>
                 <div style="font-size: 8pt; font-weight: bold;">{{ comp.challan_sub }}</div>
             </div>
@@ -339,7 +341,7 @@ TEMPLATE_CHALLAN = """
             {% for item in items %}
             <tr><td class="center v-top">{{ loop.index }}</td><td class="center v-top">{{ "{:,.0f}".format(item.Qty) }} Pkts.</td><td class="v-top">{{ item.Description }}</td></tr>
             {% endfor %}
-            {% set filler_count = 14 - items|length %}{% if filler_count > 0 %}{% for i in range(filler_count) %}<tr><td>&nbsp;</td><td></td><td></td></tr>{% endfor %}{% endif %}
+            {% set filler_count = 12 - items|length %}{% if filler_count > 0 %}{% for i in range(filler_count) %}<tr><td>&nbsp;</td><td></td><td></td></tr>{% endfor %}{% endif %}
         </tbody>
     </table>
     <div class="center italic bold" style="margin-top: 20px; border: 1px solid black; padding: 5px;">Received above mentioned Goods checked and found to be good condition</div>
