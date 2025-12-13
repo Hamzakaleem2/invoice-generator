@@ -85,19 +85,34 @@ DEPARTMENTS = [
 
 # --- 3. HELPERS & CLEANING ---
 def clean_buyer_name(text):
-    """Forcefully removes names and keeps only titles"""
-    if not text: return ""
-    text_upper = text.upper()
+    """
+    AGGRESSIVE CLEANER:
+    Agar AI ne ghalti se naam (Dr. Shah...) utha liya, ye function usay mita kar
+    sirf Title wapis karega.
+    """
+    if not text: 
+        return "The Project Director" # Default Safe Value
+        
+    t = text.upper()
     
-    # Priority Check: If it contains Director, just say "The Project Director"
-    if "PROJECT DIRECTOR" in text_upper:
+    # Priority 1: Project Director
+    if "PROJECT" in t and "DIRECTOR" in t:
         return "The Project Director"
-    if "DIRECTOR" in text_upper and "VETERINARY" in text_upper:
-        return "Director of Veterinary Research and Diagnosis" # Specific case
-    if "DIRECTOR" in text_upper:
+        
+    # Priority 2: Veterinary Director (Specific Case)
+    if "VETERINARY" in t and "DIRECTOR" in t:
+        return "Director of Veterinary Research and Diagnosis"
+        
+    # Priority 3: Simple Director
+    if "DIRECTOR" in t:
         return "The Director"
         
-    return text
+    # Priority 4: Agar naam hai lekin Title samajh nahi aa raha, to default laga do
+    if "DR." in t or "MR." in t:
+        return "The Project Director"
+        
+    # Agar kuch bhi samajh na aaye, to wahi wapis kardo (ya default laga do)
+    return "The Project Director"
 
 def get_last_serial(company, department):
     try:
@@ -139,13 +154,12 @@ def analyze_with_mistral(image_file):
         image_file.seek(0)
         client = Mistral(api_key=api_key)
         
-        # STRICTER PROMPT
         prompt = """
-        Extract from Purchase Order:
+        Extract from this Purchase Order image:
         {
             "po_no": "Order No string",
             "date": "DD.MM.YYYY",
-            "buyer": "Find the Designation (e.g. 'Project Director'). DO NOT include the person's name.",
+            "buyer": "Identify the Designation (e.g. Project Director). IGNORE specific names like Dr. Shah Murad.",
             "items": [
                 {"Qty": number, "Description": "string", "Rate": number}
             ]
@@ -428,7 +442,8 @@ with col2:
                     st.success("Extracted!")
                     extracted_po = ai_data.get('po_no', "")
                     extracted_date = ai_data.get('date', "") or extracted_date
-                    # CLEAN NAME HERE
+                    
+                    # HARD CLEANING
                     raw_buyer = ai_data.get('buyer', "")
                     extracted_buyer = clean_buyer_name(raw_buyer)
                     
