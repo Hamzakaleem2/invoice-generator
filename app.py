@@ -124,11 +124,10 @@ def clean_float(value):
         return float(value)
     except: return 0.0
 
-def get_estimated_lines(description, width_chars=95):
+def get_estimated_lines(description, width_chars=65):
     """
-    CHANGED: Increased width_chars to 95.
-    This makes the logic 'softer'. It will only count a new line if text is VERY long.
-    Result: Filler rows will decrease slowly (one by one), not abruptly.
+    Calculates lines.
+    width_chars=65 is a safe average for the 'Description' column.
     """
     if not description: return 1
     newlines = description.count('\n')
@@ -193,9 +192,9 @@ def get_css(template_mode="standard"):
     .bill-title { font-size: 20pt; }
     
     .grid-table { width: 100%; border-collapse: collapse; margin-top: 5px; table-layout: fixed; }
-    .grid-table th { background-color: white; color: black; font-weight: bold; text-align: center; border: 1px solid black; padding: 4px; font-size: 9pt; }
-    /* Added min-height to rows to ensure they consume space */
-    .grid-table td { border: 1px solid black; padding: 4px; font-size: 10pt; word-wrap: break-word; height: 22px; }
+    .grid-table th { background-color: white; color: black; font-weight: bold; text-align: center; border: 1px solid black; padding: 2px; font-size: 9pt; }
+    /* Height ensures rows don't collapse */
+    .grid-table td { border: 1px solid black; padding: 4px; font-size: 10pt; word-wrap: break-word; height: 24px; }
     
     .gst-info-table { width: 100%; border-collapse: collapse; margin-bottom: 5px; border: 2px solid black; }
     .gst-info-table td { border: none !important; padding: 3px; vertical-align: top; }
@@ -221,7 +220,7 @@ def get_css(template_mode="standard"):
         css += "@page { size: A4; margin-top: 2.5in; margin-bottom: 1in; margin-left: 1cm; margin-right: 1cm; }"
     return css
 
-# --- 6. TEMPLATES (Revised Columns) ---
+# --- 6. TEMPLATES (CORRECTED WIDTHS) ---
 
 TEMPLATE_GST = """
 <html><head><style>{{ css }}</style></head><body>
@@ -316,7 +315,7 @@ TEMPLATE_BILL = """
     
     <table class="grid-table {% if comp.template_type == 'logo' %}black-header{% endif %}">
         <thead>
-            <tr><th width="4%">S.No.</th><th width="8%">QTY.</th><th width="64%">PARTICULARS</th><th width="12%">RATE</th><th width="12%">AMOUNT</th></tr>
+            <tr><th width="6%">S.No.</th><th width="10%">QTY.</th><th width="60%">PARTICULARS</th><th width="12%">RATE</th><th width="12%">AMOUNT</th></tr>
         </thead>
         <tbody>
             {% for item in items %}
@@ -369,7 +368,7 @@ TEMPLATE_CHALLAN = """
     
     <table class="grid-table">
         <thead>
-            <tr><th width="4%">S.No.</th><th width="8%">QUANTITY</th><th width="88%">PARTICULARS</th></tr>
+            <tr><th width="6%">S.No.</th><th width="10%">QUANTITY</th><th width="84%">PARTICULARS</th></tr>
         </thead>
         <tbody>
             {% for item in items %}
@@ -384,7 +383,7 @@ TEMPLATE_CHALLAN = """
 </body></html>
 """
 
-# --- 7. GENERATION (SMOOTH/SOFT ROW LOGIC) ---
+# --- 7. GENERATION (SMOOTH ROW LOGIC - FIXED) ---
 def generate_docs(comp_key, dept_name, buyer_name, items_data, po_no, po_date, logo_b64, manual_serial):
     if manual_serial and manual_serial.strip():
         final_serial = manual_serial.zfill(4)
@@ -405,7 +404,6 @@ def generate_docs(comp_key, dept_name, buyer_name, items_data, po_no, po_date, l
         desc = item.get('Description', '')
         
         # Calculate visual lines
-        # Using the increased width_chars=95 in the helper function now
         lines_this_item = get_estimated_lines(desc)
         total_visual_lines += lines_this_item
         
@@ -424,11 +422,10 @@ def generate_docs(comp_key, dept_name, buyer_name, items_data, po_no, po_date, l
     gst_css = get_css("standard") 
     doc_css = get_css("letterhead" if is_simple else "standard")
     
-    # --- PAGE FILLING LOGIC ---
-    # Increased target lines to 25 to push content down to footer.
-    # The 'width_chars' logic above ensures we don't subtract too many lines too fast.
-    MAX_LINES_GST = 18   
-    MAX_LINES_BILL = 25  
+    # --- PAGE FILLING ADJUSTMENT ---
+    # Increased target lines to 26 for Bill/Challan to FILL the page bottom.
+    MAX_LINES_GST = 20
+    MAX_LINES_BILL = 26
     
     filler_gst = max(0, MAX_LINES_GST - total_visual_lines)
     filler_bill = max(0, MAX_LINES_BILL - total_visual_lines)
