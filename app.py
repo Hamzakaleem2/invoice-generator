@@ -12,13 +12,15 @@ from weasyprint import HTML, CSS
 from num2words import num2words
 from mistralai import Mistral
 
-# --- 1. SETTINGS & API KEY ---
-MISTRAL_API_KEY = "HvCqGQtSLzkxu2C3gmPyWm8Xg5wNktly" # <--- APNI KEY YAHAN PASTE KAREIN
+# --- 1. CONFIGURATION & KEYS ---
+# Paste your API key here
+MISTRAL_API_KEY = "HvCqGQtSLzkxu2C3gmPyWm8Xg5wNktly" 
 
 SERIAL_FILE = 'serial_tracker.json'
-NT_LOGO_FILE = "nt_logo.png"
+# Name your logo file EXACTLY this and upload it to GitHub alongside app.py
+PERMANENT_LOGO_FILE = "nt_logo.png"
 
-# --- 2. DATABASE ---
+# --- 2. COMPANY DATABASE ---
 COMPANIES = {
     "M/S National Traders": {
         "template_type": "logo",
@@ -85,13 +87,20 @@ DEPARTMENTS = [
     "Animal Husbandry"
 ]
 
-# --- 3. HELPERS & CLEANING ---
+# --- 3. LOGIC HELPERS ---
 def clean_buyer_name(text):
+    """Aggressive cleaner: If it sees a Title, it deletes the Name."""
     if not text: return "The Project Director"
-    t = text.upper()
-    if "PROJECT" in t and "DIRECTOR" in t: return "The Project Director"
-    if "VETERINARY" in t and "DIRECTOR" in t: return "Director of Veterinary Research and Diagnosis"
-    if "DIRECTOR" in t: return "The Director"
+    upper_text = text.upper()
+    
+    if "PROJECT DIRECTOR" in upper_text:
+        return "The Project Director"
+    if "DIRECTOR" in upper_text and "VETERINARY" in upper_text:
+        return "Director of Veterinary Research and Diagnosis"
+    if "DIRECTOR" in upper_text:
+        return "The Director"
+    
+    # Fallback
     return "The Project Director"
 
 def get_last_serial(company, department):
@@ -127,23 +136,24 @@ def clean_float(value):
 def analyze_with_mistral(image_file):
     api_key = MISTRAL_API_KEY
     if "YOUR_MISTRAL_API_KEY" in api_key:
-        return None, "Please set MISTRAL_API_KEY in app.py"
+        return None, "Please set MISTRAL_API_KEY in code."
+    
     try:
         base64_image = base64.b64encode(image_file.read()).decode('utf-8')
         image_file.seek(0)
         client = Mistral(api_key=api_key)
+        
         prompt = """
-        Extract from this Purchase Order image:
+        Extract from image:
         {
-            "po_no": "Order No string",
+            "po_no": "Order No",
             "date": "DD.MM.YYYY",
-            "buyer": "Identify the Designation (e.g. Project Director). IGNORE specific names like Dr. Shah Murad.",
-            "items": [
-                {"Qty": number, "Description": "string", "Rate": number}
-            ]
+            "buyer": "Designation Only (e.g. Project Director)",
+            "items": [{"Qty": number, "Description": "text", "Rate": number}]
         }
         Return ONLY JSON.
         """
+        
         resp = client.chat.complete(
             model="pixtral-12b-2409",
             messages=[{"role":"user", "content":[{"type":"text","text":prompt},{"type":"image_url","image_url":f"data:image/jpeg;base64,{base64_image}"}]}]
@@ -154,8 +164,9 @@ def analyze_with_mistral(image_file):
     except Exception as e:
         return None, str(e)
 
-# --- 5. CSS & TEMPLATES ---
+# --- 5. VISUAL STYLING (CSS) ---
 def get_css(template_mode="standard"):
+    # Using 0.5pt Border-Bottom instead of underline to prevent double-line look
     css = """
     @page { size: A4; margin: 0.25in 0.5in; }
     body { font-family: Arial, sans-serif; font-size: 10pt; line-height: 1.1; }
@@ -166,12 +177,13 @@ def get_css(template_mode="standard"):
     
     .title-box { text-align: center; margin-bottom: 5px; }
     
+    /* THE FIX: No text-decoration, just a thin border */
     .main-title { 
         font-family: "Times New Roman", serif; 
         font-weight: bold; 
         display: inline-block; 
-        text-decoration: none !important; 
-        border-bottom: 0.5pt solid black;   
+        text-decoration: none !important;
+        border-bottom: 0.5pt solid black;
         padding-bottom: 1px;
     }
     .gst-title { font-size: 22pt; }
@@ -186,7 +198,7 @@ def get_css(template_mode="standard"):
     .gst-info-label { font-weight: bold; width: 15%; }
     
     .nt-header { border: 2px solid #74c69d; border-radius: 10px; padding: 5px; margin-bottom: 5px; }
-    .nt-logo { width: 110px; height: auto; display: block; }
+    .nt-logo { width: 130px; height: auto; display: block; }
     .simple-header { text-align: center; margin-bottom: 10px; }
     
     .info-row { margin-bottom: 2px; display: flex; }
@@ -203,6 +215,8 @@ def get_css(template_mode="standard"):
     if template_mode == "letterhead":
         css += "@page { size: A4; margin-top: 2.5in; margin-bottom: 1in; margin-left: 1cm; margin-right: 1cm; }"
     return css
+
+# --- 6. TEMPLATES ---
 
 TEMPLATE_GST = """
 <html><head><style>{{ css }}</style></head><body>
@@ -249,7 +263,7 @@ TEMPLATE_GST = """
                 <td class="center v-top">{{ "{:,.0f}".format(item.val_excl) }}</td><td class="center v-top">18%</td><td class="center v-top">{{ "{:,.0f}".format(item.tax_val) }}</td><td class="center v-top">{{ "{:,.0f}".format(item.val_incl) }}</td>
             </tr>
             {% endfor %}
-            {% set target_rows = 15 %}
+            {% set target_rows = 12 %}
             {% set filler_count = target_rows - items|length %}
             {% if filler_count > 0 %}{% for i in range(filler_count) %}<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td></tr>{% endfor %}{% endif %}
         </tbody>
@@ -367,7 +381,7 @@ TEMPLATE_CHALLAN = """
 </body></html>
 """
 
-# --- 6. GENERATION ---
+# --- 7. GENERATION ---
 def generate_docs(comp_key, dept_name, buyer_name, items_data, po_no, po_date, logo_b64, manual_serial):
     if manual_serial and manual_serial.strip():
         final_serial = manual_serial.zfill(4)
@@ -409,7 +423,7 @@ def generate_docs(comp_key, dept_name, buyer_name, items_data, po_no, po_date, l
         zf.writestr(f"3_Challan_{final_serial}.pdf", HTML(string=Template(TEMPLATE_CHALLAN).render(**context, css=doc_css)).write_pdf())
     return zip_buffer.getvalue(), final_serial
 
-# --- 7. UI ---
+# --- 8. UI ---
 st.set_page_config(page_title="Invoice Master", layout="wide")
 if 'gen_zip' not in st.session_state: st.session_state.gen_zip = None
 if 'gen_serial' not in st.session_state: st.session_state.gen_serial = ""
@@ -437,8 +451,7 @@ with col2:
         if 'last_img' not in st.session_state or st.session_state.last_img != uploaded_img.name:
             with st.spinner("Processing Image..."):
                 ai_data, error = analyze_with_mistral(uploaded_img)
-                if error: 
-                    st.warning(f"AI Warning: {error}")
+                if error: st.warning(f"AI Warning: {error}")
                 elif ai_data:
                     st.success("Extracted!")
                     extracted_po = ai_data.get('po_no', "")
@@ -461,24 +474,20 @@ with col2:
     
     st.write("---")
     if st.button("Generate Documents", type="primary"):
-        # --- LOGO LOGIC (PERMANENT FIX) ---
+        # --- PERMANENT LOGO LOGIC ---
         logo_b64 = None
         if logo:
             logo_b64 = img_to_base64(logo)
         elif comp_key == "M/S National Traders":
-            # Check for local file if no user upload
-            if os.path.exists(NT_LOGO_FILE):
+            # Check LOCAL file
+            if os.path.exists(PERMANENT_LOGO_FILE):
                 try:
-                    with open(NT_LOGO_FILE, "rb") as f:
+                    with open(PERMANENT_LOGO_FILE, "rb") as f:
                         logo_b64 = base64.b64encode(f.read()).decode()
-                except Exception as e:
-                     st.error(f"Error reading local logo file: {e}")
-            else:
-                 st.error(f"Permanent logo not found: Make sure '{NT_LOGO_FILE}' is in the project folder.")
+                except: pass
         
-        # Validation
         if COMPANIES[comp_key]['template_type'] == 'logo' and not logo_b64:
-            st.error("Error: Logo required for National Traders! Upload one or ensure 'nt_logo.png' is present.")
+            st.error(f"Error: Logo required! Upload one or ensure '{PERMANENT_LOGO_FILE}' exists in the folder.")
         else:
             try: items_list = df_items.to_dict('records')
             except: items_list = []
